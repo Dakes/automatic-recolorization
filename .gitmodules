@@ -1,0 +1,6 @@
+[submodule "interactive-deep-colorization"]
+	path = interactive-deep-colorization
+	url = https://github.com/junyanz/interactive-deep-colorization
+[submodule "colorization-pytorch"]
+	path = colorization-pytorch
+	url = https://github.com/richzhang/colorization-pytorch
