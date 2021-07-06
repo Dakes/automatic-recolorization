@@ -56,6 +56,7 @@ class Recolor(object):
         parser.add_argument('--cpu_mode', dest='cpu_mode', help='do not use gpu', action='store_true')
         parser.add_argument('--pytorch_maskcent', dest='pytorch_maskcent', help='need to center mask (activate for siggraph_pretrained but not for converted caffemodel)', action='store_true')
         parser.add_argument('--show_plot', dest='show_plot', help='show pyplot plot of images', action='store_true')
+        parser.add_argument('--decode_only', dest='decode_only', help='only decode, use pre-encoded CSVs', action='store_true')
 
 
         args = parser.parse_args()
@@ -133,15 +134,10 @@ class Recolor(object):
         :return: tuple of colorized image and input pixel mask (as image) and new filename (second is optional, dependend on self.input_mask)
         """
         # TODO: automate grid_size and size to get certain density
-        grid_size = 100
+        grid_size = 10
 
         # generate new filename with parameters used
-        orig_filename = os.path.basename(input_image_path)
-        orig_filename_wo_ext, extension = os.path.splitext(orig_filename)
-        pixel_used = int( (self.load_size*self.load_size) / grid_size )
-        new_filename = orig_filename_wo_ext + "_" +  self.method + "_" + str(self.load_size) + "_" + str(grid_size) + "_" + str(pixel_used) + extension
-
-
+        new_filename = ar_utils.gen_new_filename(input_image_path, self.load_size, grid_size, self.method)
 
         colorModel = CI.ColorizeImageTorch(Xd=self.load_size, maskcent=self.maskcent)
         colorModel.prep_net(path=os.path.abspath(args.color_model), gpu_id=args.gpu)
@@ -150,18 +146,15 @@ class Recolor(object):
         # distModel.prep_net(path=os.path.abspath(args.color_model), dist=True, gpu_id=args.gpu)
 
         colorModel.load_image(input_image_path)
-        orig_lab_img = colorModel.img_lab_fullres
+        orig_lab_img = colorModel.img_lab # img_lab is sizexsize, img_lab_fullres fullres, obviously
         h = len(orig_lab_img[0])
         w = len(orig_lab_img[0][0])
 
 
         # TODO: automate points and get value from original
         # initialize with no user inputs
-        mask = ar_utils.Mask(size=self.load_size)
-        # mask = ar_utils.get_color_mask(orig_lab_img, grid_size=grid_size, size=self.load_size)
-        mask.load(output_folder, os.path.splitext(new_filename)[0])
-        # save mask to disk TODO: move to encoder
-        # mask.save(output_folder, os.path.splitext(new_filename)[0])
+        ec = encoder.Encoder()
+        mask = ec.encode(input_image_path, output_folder, self.load_size, grid_size, p=0, method="ideepcolor-px-grid")
 
         # call forward
         img_out = colorModel.net_forward(mask.input_ab, mask.mask)
@@ -176,7 +169,6 @@ class Recolor(object):
             img_mask_fullres = colorModel.get_input_img_fullres() # get input image with pixel mask in full res
             return (img_out_fullres, img_mask_fullres, new_filename)
         return (img_out_fullres, None, new_filename)
-
 
 
 

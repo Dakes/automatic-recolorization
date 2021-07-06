@@ -37,10 +37,11 @@ class Mask(object):
 
 
     def save(self, path, name, round_to_int=True, method="csv"):
+        name, extension = os.path.splitext(name)
         save_path = os.path.join(path, name+".mask")
 
         if method == "numpy" or method == "np":
-            np.savez_compressed(save_path+"np.savez_compressed", self.input_ab, self.mask)
+            np.savez_compressed(save_path+"np.savez_compressed", a=self.input_ab, b=self.mask)
 
         elif method == "csv":
             # header = ["y", "x", "a", "b"]
@@ -72,7 +73,13 @@ class Mask(object):
     def load(self, path, name, method="csv"):
         save_path = os.path.join(path, name+".mask")
         self._init_mask(self.size)
+        if method == "numpy":
+            loaded = np.load(save_path)
+            self.input_ab = loaded["a"]
+            self.mask = loaded["b"]
+
         if method == "csv":
+            # save_path = "output_images/dragon_pool_ideepcolor-px_2048_100_41943.mask.csv.original"
             with open(save_path + ".csv") as f:
                 reader = csv.reader(f, delimiter=";")
                 data = list(reader)
@@ -97,7 +104,7 @@ def save(path, name, img):
 
 # ideepcolor
 # Pixels
-def get_color_mask(img, grid_size=100, size=256):
+def get_color_mask(img, grid_size=100, size=256, p=0):
     """
     :param img: original color image as lab (lab, y, x)
     :param grid_size: distance between pixels of grid in pixels 0-256 (mask size)
@@ -107,7 +114,7 @@ def get_color_mask(img, grid_size=100, size=256):
 
     # print(img[2][0][0])
 
-    mask = Mask(size=size)
+    mask = Mask(size=size, p=p)
 
     h = len(img[0])
     w = len(img[0][0])
@@ -120,11 +127,19 @@ def get_color_mask(img, grid_size=100, size=256):
                 continue
             # print(img[1][y][x], img[2][y][x])
             y_img, x_img = _coord_mask_to_img(h, w, y, x, size)
-            mask.put_point((y, x), [ img[1][y_img][x_img], img[2][y_img][x_img] ], p=0 )
+            mask.put_point((y, x), [ img[1][y_img][x_img], img[2][y_img][x_img] ])
 
     # mask.put_point([135,160], 3, [100,-69])
     # print(mask.input_ab)
     return mask
+
+def gen_new_filename(input_image_path, load_size, grid_size, method):
+    orig_filename = os.path.basename(input_image_path)
+    orig_filename_wo_ext, extension = os.path.splitext(orig_filename)
+    pixel_used = int( (load_size*load_size) / grid_size )
+    new_filename = orig_filename_wo_ext + "_" +  method + "_" + str(load_size) + "_" + str(grid_size) + "_" + str(pixel_used) + extension
+    return new_filename
+
 
 def _coord_img_to_mask(h, w, y, x, size=256):
     return (_coord_transform(size, h, y), _coord_transform(size, w, x))
