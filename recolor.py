@@ -4,26 +4,28 @@ import argparse
 import importlib
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image
 import os, sys
-import ar_utils
+import ar_utils, encoder
 
 # -'s in import not allowed
-ideepcolor = importlib.import_module("interactive-deep-colorization")
+# ideepcolor = importlib.import_module("interactive-deep-colorization")
 CI = importlib.import_module("interactive-deep-colorization.data.colorize_image")
 # CICIT = importlib.import_module("interactive-deep-colorization.data.colorize_image.ColorizeImageTorch")
-ideepcolor_pytorch = importlib.import_module("colorization-pytorch")
+# ideepcolor_pytorch = importlib.import_module("colorization-pytorch")
 
 sys.path.insert(1, os.path.abspath("interactive-deep-colorization"))
 
 # TODO: add full auto mode: watch folder for new images
 # TODO: add config file parser. Encoder, Decoder etc.
+# TODO: Encoder, Decoder
 class Recolor(object):
     def __init__(self):
         self.methods = ["ideepcolor-px", "ideepcolor-hist", "HistoGAN"]
         self.method = self.methods[0]
         # True for retrained, false for caffe model
         self.maskcent = False
-        self.load_size = 256
+        self.load_size = 2048 # 256
 
         # Whether to save the mask of colorization pixels
         self.input_mask = True
@@ -94,26 +96,22 @@ class Recolor(object):
                         pass
 
                     try:
-                        # TODO: check if image
+                        # to check if valid image
+                        Image.open(file_path)
                         self.img_recolor(args, file_path, out_folder) # TODO
-                    except Exception as err:
-                        pass # TODO: handle non image files?
+                    except IOError as err:
+                        pass
 
 
     def img_recolor(self, args, input_image_path, output_folder):
         img_out_fullres = None
         img_in_fullres = None
+        new_filename = None
         if self.method == "ideepcolor-px":
-            img_out_fullres, img_in_fullres = self.ideepcolor_px_recolor(args, input_image_path)
+            img_out_fullres, img_in_fullres, new_filename = self.ideepcolor_px_recolor(args, input_image_path, output_folder)
 
-
-        orig_filename = os.path.basename(input_image_path)
-
-
-        # TODO: change filename, dependend on change
         # TODO: save parameters in sidecar file (col. method, pixel grid size, or specific pixels, density)
-        orig_fn_wo_ext, extension = os.path.splitext(orig_filename)
-        ar_utils.save(output_folder, orig_fn_wo_ext+"_"+self.method+extension, img_out_fullres)
+        ar_utils.save(output_folder, new_filename, img_out_fullres)
 
         if self.show_plot:
             # show user input, along with output
@@ -128,26 +126,42 @@ class Recolor(object):
             plt.show()
 
 
-    def ideepcolor_px_recolor(self, args, input_image_path):
+    def ideepcolor_px_recolor(self, args, input_image_path, output_folder):
         """
         ideepcolor pixel colorization method
         TODO: extend to use different pixel extraction methods
-        :return: tuple of colorized image and input pixel mask (as image) (second is optional, dependend on self.input_mask)
+        :return: tuple of colorized image and input pixel mask (as image) and new filename (second is optional, dependend on self.input_mask)
         """
+        # TODO: automate grid_size and size to get certain density
+        grid_size = 100
+
+        # generate new filename with parameters used
+        orig_filename = os.path.basename(input_image_path)
+        orig_filename_wo_ext, extension = os.path.splitext(orig_filename)
+        pixel_used = int( (self.load_size*self.load_size) / grid_size )
+        new_filename = orig_filename_wo_ext + "_" +  self.method + "_" + str(self.load_size) + "_" + str(grid_size) + "_" + str(pixel_used) + extension
+
+
+
         colorModel = CI.ColorizeImageTorch(Xd=self.load_size, maskcent=self.maskcent)
         colorModel.prep_net(path=os.path.abspath(args.color_model), gpu_id=args.gpu)
 
-        distModel = CI.ColorizeImageTorchDist(Xd=self.load_size, maskcent=self.maskcent)
-        distModel.prep_net(path=os.path.abspath(args.color_model), dist=True, gpu_id=args.gpu)
+        # distModel = CI.ColorizeImageTorchDist(Xd=self.load_size, maskcent=self.maskcent)
+        # distModel.prep_net(path=os.path.abspath(args.color_model), dist=True, gpu_id=args.gpu)
 
         colorModel.load_image(input_image_path)
+        orig_lab_img = colorModel.img_lab_fullres
+        h = len(orig_lab_img[0])
+        w = len(orig_lab_img[0][0])
+
 
         # TODO: automate points and get value from original
         # initialize with no user inputs
-        mask = ar_utils.Mask()
-
-        # add a blue point in the middle of the image
-        mask.put_point([135,160], 3, [100,-69])
+        mask = ar_utils.Mask(size=self.load_size)
+        # mask = ar_utils.get_color_mask(orig_lab_img, grid_size=grid_size, size=self.load_size)
+        mask.load(output_folder, os.path.splitext(new_filename)[0])
+        # save mask to disk TODO: move to encoder
+        # mask.save(output_folder, os.path.splitext(new_filename)[0])
 
         # call forward
         img_out = colorModel.net_forward(mask.input_ab, mask.mask)
@@ -155,10 +169,13 @@ class Recolor(object):
         # get mask, input image, and result in full resolution
         # mask_fullres = colorModel.get_img_mask_fullres() # get input mask in full res
         img_out_fullres = colorModel.get_img_fullres() # get image at full resolution
+
+
+
         if self.input_mask:
-            img_in_fullres = colorModel.get_input_img_fullres() # get input image in full res
-            return (img_out_fullres, img_in_fullres)
-        return (img_out_fullres, None)
+            img_mask_fullres = colorModel.get_input_img_fullres() # get input image with pixel mask in full res
+            return (img_out_fullres, img_mask_fullres, new_filename)
+        return (img_out_fullres, None, new_filename)
 
 
 
