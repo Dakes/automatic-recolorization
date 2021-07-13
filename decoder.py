@@ -8,12 +8,17 @@ from PIL import Image
 CI = importlib.import_module("interactive-deep-colorization.data.colorize_image")
 
 class Decoder(object):
-    def __init__(self, gpu_id=-1, method=ar_utils.methods[0], watch=False, display_mask=False) -> None:
+    def __init__(self, gpu_id=-1, method=ar_utils.methods[0], size=256, p=0, display_mask=False) -> None:
         self.gpu_id = gpu_id
         self.methods = ar_utils.methods
         self.method = method
-        self.watch = watch
+        self.watch = False
+        self.size = size
+        self.p = p
         self.display_mask = display_mask
+        # self.input_path = input_path
+        # self.output_path = output_path
+
         self.maskcent = False
         self.color_model = 'colorization-pytorch/checkpoints/siggraph_caffemodel/latest_net_G.pth'
 
@@ -21,10 +26,9 @@ class Decoder(object):
 
 
     def main(self):
-        parser = argparse.ArgumentParser(prog='Recolor Encoder',
+        parser = argparse.ArgumentParser(prog='Recolor Decoder',
                                             description='Encodes images, to be decoded by Recolor')
 
-        # Add the arguments
         parser.add_argument('-o', '--output_path', action='store', dest='output_path', type=str,
                                default='output_images',
                                help='The path to the folder or file, where the grayscale version and color information will be written to')
@@ -77,7 +81,6 @@ class Decoder(object):
                 except IOError as err:
                     # print("Warning: Found non image file: " + fil.path)
                     pass
-
 
 
     def decode(self, img_gray_path, output_path="output_images"):

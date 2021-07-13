@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 import os, sys
-import ar_utils, encoder
+import ar_utils, encoder, decoder
 
 # -'s in import not allowed
 # ideepcolor = importlib.import_module("interactive-deep-colorization")
@@ -34,34 +34,50 @@ class Recolor(object):
 
 
     def main(self):
-        parser = argparse.ArgumentParser(prog='Recolor',
-                                            description='TODO')
+        parser = argparse.ArgumentParser(prog='Recolor', description='TODO')
 
-        # Add the arguments
         parser.add_argument('-o', '--output_path', action='store', dest='output_path', type=str,
                                default='output_images',
-                               help='The path to the folder or file, where the output will be written to... What did you expect?')
+                               help='The path to the folder or file, where the output will be written to. ')
         parser.add_argument('-i', '--input_path', action='store', dest='input_path', type=str,
                                default='input_images',
-                               help='TODO')
+                               help='The path to the folder with input color images... What did you expect?')
+        parser.add_argument('-ir', '--intermediate_representation', action='store', dest='intermediate_representation', type=str,
+                               default='intermediate_representation',
+                               help='The path, where the grayscale images + color cues will be stored')
         parser.add_argument('-m', '--method', action='store', dest='method', type=str, default=self.methods[0],
                             help='The colorization method to use. Possible values: \"' + ', '.join(self.methods) + '\"')
-        parser.add_argument('--color_model', dest='color_model', help='colorization model (color & dist for Pytorch)', type=str,
-                        default='colorization-pytorch/checkpoints/siggraph_caffemodel/latest_net_G.pth')
+
+        # parser.add_argument('--color_model', dest='color_model', help='colorization model (color & dist for Pytorch)', type=str,
+        #                 default='colorization-pytorch/checkpoints/siggraph_caffemodel/latest_net_G.pth')
         # 'colorization-pytorch/checkpoints/siggraph_retrained/latest_net_G.pth'
 
+        # for ideepcolor-px
+        parser.add_argument('-s', '--size', action='store', dest='size', type=int, default=256,
+                               help='Size of the indermediate mask to store the color pixels. Power of 2. \
+                               The bigger, the more accurate the result, but requires more storage, and RAM capacity (decoder) \
+                               (For 2048 up to 21GB RAM)')
+        parser.add_argument('-g', '--grid_size', action='store', dest='grid_size', type=int, default=10,
+                               help='Spacing between color pixels in intermediate mask (--size)')
+        parser.add_argument('-p', '--p', action='store', dest='p', type=int, default=0,
+                               help='The "radius" the color values will have. \
+                               A higher value means one color pixel will later cover multiple gray pixels. Default: 0')
+
         # TODO: test gpu on cuda gpu
-        parser.add_argument('--gpu', dest='gpu', help='gpu id', type=int, default=None)
+        parser.add_argument('--gpu_id', dest='gpu_id', help='gpu id', type=int, default=-1)
         # TODO: remove?
         parser.add_argument('--cpu_mode', dest='cpu_mode', help='do not use gpu', action='store_true')
-        parser.add_argument('--pytorch_maskcent', dest='pytorch_maskcent', help='need to center mask (activate for siggraph_pretrained but not for converted caffemodel)', action='store_true')
-        parser.add_argument('--show_plot', dest='show_plot', help='show pyplot plot of images', action='store_true')
-        parser.add_argument('--decode_only', dest='decode_only', help='only decode, use pre-encoded CSVs', action='store_true')
+        # parser.add_argument('--pytorch_maskcent', dest='pytorch_maskcent', help='need to center mask (activate for siggraph_pretrained but not for converted caffemodel)', action='store_true')
+        parser.add_argument('--save_mask', dest='save_mask', help='save mask of input pixels as image (ideepcolor-px)', action='store_true')
 
 
         args = parser.parse_args()
-        self.maskcent = args.pytorch_maskcent
-        self.show_plot = args.show_plot
+        # self.maskcent = args.pytorch_maskcent
+        # self.show_plot = args.show_plot
+
+        if args.cpu_mode:
+            self.gpu_id = -1
+            args.gpu_id = -1
 
 
         if args.method not in self.methods:
@@ -76,9 +92,9 @@ class Recolor(object):
 
         if not os.path.isdir(args.input_path):
             # TODO: check if image
-            self.img_recolor(args, args.input_path, args.output_path)
+            self.img_recolor(args, args.input_path)
 
-        # recursive colorize pictures in folder
+        # colorize all pictures in folder
         elif os.path.isdir(args.input_path):
             try:
                 os.mkdir(args.output_path)
@@ -99,34 +115,45 @@ class Recolor(object):
                     try:
                         # to check if valid image
                         Image.open(file_path)
-                        self.img_recolor(args, file_path, out_folder) # TODO
+                        self.img_recolor(args, file_path) # TODO
                     except IOError as err:
                         pass
 
 
-    def img_recolor(self, args, input_image_path, output_folder):
-        img_out_fullres = None
-        img_in_fullres = None
-        new_filename = None
-        if self.method == "ideepcolor-px":
-            img_out_fullres, img_in_fullres, new_filename = self.ideepcolor_px_recolor(args, input_image_path, output_folder)
+    def img_recolor(self, args, input_image_path):
+        """
+        Performs Encoding and Decoding at once
+        """
+        ec = encoder.Encoder(method=args.method, size=args.size, p=args.p, grid_size=args.grid_size)
+        dc = decoder.Decoder(method=args.method, size=args.size, p=args.p, gpu_id=args.gpu_id)
 
-        # TODO: save parameters in sidecar file (col. method, pixel grid size, or specific pixels, density)
-        ar_utils.save(output_folder, new_filename, img_out_fullres)
+        ec.encode(input_image_path, args.intermediate_representation)
+        img_gray_name = ar_utils.gen_new_gray_filename(input_image_path)
+        img_gray_path = os.path.join(args.intermediate_representation, img_gray_name)
+        dc.decode(img_gray_path, args.output_path)
 
-        if self.show_plot:
-            # show user input, along with output
-            plt.figure(figsize=(10,6))
-            if self.input_mask:
-                plt.imshow(np.concatenate((img_in_fullres, img_out_fullres), axis=1))
-                plt.title('Input grayscale with auto points / Output colorization')
-            else:
-                plt.imshow(np.concatenate((img_out_fullres, ), axis=1))
-                plt.title('Output colorization')
-            plt.axis('off')
-            plt.show()
+        # img_out_fullres = None
+        # img_in_fullres = None
+        # new_filename = None
+        # if self.method == "ideepcolor-px":
+        #     img_out_fullres, img_in_fullres, new_filename = self.ideepcolor_px_recolor(args, input_image_path, output_folder)
 
+        # # TODO: save parameters in sidecar file (col. method, pixel grid size, or specific pixels, density)
+        # ar_utils.save(output_folder, new_filename, img_out_fullres)
 
+        # if self.show_plot:
+        #     # show user input, along with output
+        #     plt.figure(figsize=(10,6))
+        #     if self.input_mask:
+        #         plt.imshow(np.concatenate((img_in_fullres, img_out_fullres), axis=1))
+        #         plt.title('Input grayscale with auto points / Output colorization')
+        #     else:
+        #         plt.imshow(np.concatenate((img_out_fullres, ), axis=1))
+        #         plt.title('Output colorization')
+        #     plt.axis('off')
+        #     plt.show()
+
+    # DEPRECATED replaced by decoder and encoder
     def ideepcolor_px_recolor(self, args, input_image_path, output_folder):
         """
         ideepcolor pixel colorization method
@@ -166,6 +193,7 @@ class Recolor(object):
             return (img_out_fullres, img_mask_fullres, new_filename)
         return (img_out_fullres, None, new_filename)
 
+    # DEPRECATED replaced by encoder and decoder
     def ideepcolor_hist_recoler(self, args, input_image_path, output_folder):
         # generate new filename with parameters used
         new_filename = ar_utils.gen_new_hist_filename(input_image_path, self.load_size, self.method)

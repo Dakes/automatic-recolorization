@@ -11,7 +11,7 @@ import cv2
 import csv
 import struct
 
-methods = ["ideepcolor-px-grid", "ideepcolor-px-selective", "ideepcolor-hist", "HistoGAN"]
+methods = ["ideepcolor-px-grid", "ideepcolor-px-selective", "ideepcolor-global", "HistoGAN"]
 
 class Mask(object):
     def __init__(self, size=256, p=1):
@@ -105,10 +105,12 @@ class Mask(object):
                 self.put_point((y,x), (a,b))
 
             
-
+# TODO: rename to save_img_lab
 def save(path, name, img):
     """Save image to disk"""
     cv2.imwrite(os.path.join(path, name), img[:, :, ::-1])
+def save_img(path, name, img):
+    cv2.imwrite(os.path.join(path, name), img)
 
 # ideepcolor
 # Pixels
@@ -139,6 +141,10 @@ def get_color_mask(img, grid_size=100, size=256, p=0):
     # mask.put_point([135,160], 3, [100,-69])
     # print(mask.input_ab)
     return mask
+
+def gen_new_gray_filename(orig_fn):
+    orig_fn_wo_ext, ext, dummy = get_fn_wo_ext(orig_fn)
+    return orig_fn_wo_ext + ".gray" + ext
 
 def gen_new_recolored_filename(orig_fn, method):
     orig_fn_wo_ext, ext, dummy = get_fn_wo_ext(orig_fn)

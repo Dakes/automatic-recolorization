@@ -13,18 +13,20 @@ import ar_utils
 import importlib
 
 class Encoder(object):
-    def __init__(self, method=ar_utils.methods[0], watch=False) -> None:
+    def __init__(self, method=ar_utils.methods[0], size=256, p=0, grid_size=10) -> None:
         self.methods = ar_utils.methods
         self.method = method
-        self.watch = watch
-        # CPU only
-        self.gpu_id = -1
+        self.watch = False
+        self.size = size
+        self.p = p
+        self.grid_size = grid_size
+        # self.input_path = input_path
+        # self.output_path = output_path
 
     def main(self):
         parser = argparse.ArgumentParser(prog='Recolor Encoder',
                                             description='Encodes images, to be decoded by Recolor')
 
-        # Add the arguments
         parser.add_argument('-o', '--output_path', action='store', dest='output_path', type=str,
                                default='intermediate_representation',
                                help='The path to the folder or file, where the grayscale version and color information will be written to')
@@ -40,7 +42,7 @@ class Encoder(object):
                                The bigger, the more accurate the result, but requires more storage, and RAM capacity (decoder) \
                                (For 2048 up to 21GB RAM)')
         parser.add_argument('-g', '--grid_size', action='store', dest='grid_size', type=int, default=10,
-                               help='Sacing between color pixels in intermediate mask (--size)')
+                               help='Spacing between color pixels in intermediate mask (--size)')
         parser.add_argument('-p', '--p', action='store', dest='p', type=int, default=0,
                                help='The "radius" the color values will have. \
                                A higher value means one color pixel will later cover multiple gray pixels. Default: 0')
@@ -85,8 +87,10 @@ class Encoder(object):
         img_lab_fullres = color.rgb2lab(img_rgb).transpose((2, 0, 1))
         return img_lab_fullres
 
+    def load_image_to_gray(self, path):
+        return cv2.cvtColor(cv2.imread(path, 1), cv2.COLOR_BGR2GRAY)
 
-    def encode(self, img_path, out_folder):
+    def encode(self, img_path, out_folder="intermediate_representation"):
         """
         Executes the right encoding method depending on self.method set.
         :return:
@@ -94,6 +98,10 @@ class Encoder(object):
         # TODO: convert img to grayscale and save to out_folder
 
         img_lab_fullres = self.load_image(img_path)
+        img_gray = self.load_image_to_gray(img_path)
+        ar_utils.save_img(out_folder, ar_utils.gen_new_gray_filename(img_path), img_gray)
+
+
         mask = ar_utils.Mask()
 
         if self.method == "ideepcolor-px-grid":
@@ -117,7 +125,6 @@ class Encoder(object):
             # TODO: implement
             pass
 
-        # TODO: save grayscale image to disk
 
     def encode_ideepcolor_global(self, img_path, size) -> np.ndarray:
         import caffe
