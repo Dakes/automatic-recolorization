@@ -15,13 +15,13 @@ methods = ["ideepcolor-px-grid", "ideepcolor-px-selective", "ideepcolor-global",
 
 class Mask(object):
     def __init__(self, size=256, p=1):
-        self._init_mask(size)
         self.size = size
         self.p = p
+        self._init_mask()
 
-    def _init_mask(self, size):
-        self.input_ab = np.zeros((2, size, size))
-        self.mask = np.zeros((1, size, size))
+    def _init_mask(self):
+        self.input_ab = np.zeros((2, self.size, self.size))
+        self.mask = np.zeros((1, self.size, self.size))
 
 
     def put_point(self, loc, val):
@@ -40,7 +40,7 @@ class Mask(object):
             self.mask[:, loc[0], loc[1]] = 1
 
 
-    def save(self, path, name, round_to_int=True, method="csv"):
+    def save(self, path, name, round_to_int=True, method="bytes"):
         # TODO: also save size and p values
         # TODO: change to bitwise save
         save_path = os.path.join(path, gen_new_mask_filename(name))
@@ -62,26 +62,40 @@ class Mask(object):
                         row = [y, x, a, b]
                         writer.writerow(row)
 
-        # TODO
         elif method == "bytes":
-            mask_file = open(save_path + ".csv")
-            mask_file.write("y;x;mask;a;b")
-            for y in range(self.size):
-                for x in range(self.size):
-                    if self.mask[0][x][y] == 0:
-                        continue
-                    mask_file.write("")
+            if self.size > 256:
+                use_short_coord = True
+                coord_type = "H"
+            else:
+                use_short_coord = False
+                coord_type = "B"
+            print(use_short_coord, coord_type)
+            with open(save_path, "wb") as f:
+                # first two Bytes save the mask size. -> coord Byte size and for restoring mask size
+                f.write(struct.pack('H', self.size))
+                # 3. Byte stores p size (unsigned char "B")
+                f.write(struct.pack("B", self.p))
+                for y in range(self.size):
+                    for x in range(self.size):
+                        if self.mask[0][y][x] == 0:
+                            continue
+                        a = int(self.input_ab[0][y][x])
+                        b = int(self.input_ab[1][y][x])
+                        f.write(struct.pack(coord_type, y))
+                        f.write(struct.pack(coord_type, x))
+                        f.write(struct.pack("b", a))
+                        f.write(struct.pack("b", b))
 
-            mask_file.close()
+                        
 
-
-    def load(self, path, name, method="csv"):
+                
+    def load(self, path, name, method="bytes"):
         """
         :param path: Path, where the sidecar file is stored
         :param name: Filename of original or grayscale image
         """
         save_path = os.path.join(path, gen_new_mask_filename(name))
-        self._init_mask(self.size)
+        self._init_mask()
         if method == "numpy":
             loaded = np.load(save_path)
             self.input_ab = loaded["a"]
@@ -104,11 +118,38 @@ class Mask(object):
 
                 self.put_point((y,x), (a,b))
 
+        elif method == "bytes":
+            with open(save_path, "rb") as f:
+                # first 2 Byte: mask size
+                saved_mask_size = struct.unpack("H", f.read(2))[0]
+                # Restore saved mask size
+                self.size = saved_mask_size
+                self._init_mask()
+                # 3. Byte: p size
+                saved_p = struct.unpack("B", f.read(1))[0]
+                self.p = saved_p
+                coord_type, coord_bytes = ("H", 2) if saved_mask_size > 256 else ("B", 1)
+                while True:
+                    y = f.read(coord_bytes)
+                    x = f.read(coord_bytes)
+                    a = f.read(1)
+                    b = f.read(1)
+                    if not all((y, x, a, b)):
+                        break
+                    y = struct.unpack(coord_type, y)[0]
+                    x = struct.unpack(coord_type, x)[0]
+                    a = struct.unpack("b", a)[0]
+                    b = struct.unpack("b", b)[0]
+                    self.put_point((y,x), (a,b))
+                    
+            
+
             
 # TODO: rename to save_img_lab
 def save(path, name, img):
     """Save image to disk"""
     cv2.imwrite(os.path.join(path, name), img[:, :, ::-1])
+
 def save_img(path, name, img):
     cv2.imwrite(os.path.join(path, name), img)
 

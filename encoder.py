@@ -150,7 +150,6 @@ class Encoder(object):
         return glob_dist_in
 
 
-
 if __name__ == "__main__":
     ec = Encoder()
     ec.main()
