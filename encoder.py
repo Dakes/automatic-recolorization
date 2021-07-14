@@ -3,7 +3,7 @@
 """
 
 
-import os
+import os, sys
 import argparse
 import cv2
 import numpy as np
@@ -13,7 +13,7 @@ import ar_utils
 import importlib
 
 class Encoder(object):
-    def __init__(self, method=ar_utils.methods[0], size=256, p=0, grid_size=10) -> None:
+    def __init__(self, output_path="intermediate_representation", method=ar_utils.methods[0], size=256, p=0, grid_size=10) -> None:
         self.methods = ar_utils.methods
         self.method = method
         self.watch = False
@@ -21,7 +21,9 @@ class Encoder(object):
         self.p = p
         self.grid_size = grid_size
         # self.input_path = input_path
-        # self.output_path = output_path
+        self.output_path = output_path
+
+        sys.path.insert(1, os.path.abspath("./interactive-deep-colorization/caffe_files"))
 
     def main(self):
         parser = argparse.ArgumentParser(prog='Recolor Encoder',
@@ -52,9 +54,10 @@ class Encoder(object):
         self.size = args.size
         self.grid_size = args.grid_size
         self.p = args.p
+        self.output_path = args.output_path
 
         try:
-            os.mkdir(args.output_path)
+            os.mkdir(self.output_path)
         except FileExistsError:
             pass
 
@@ -62,7 +65,7 @@ class Encoder(object):
         if not os.path.isdir(args.input_path):
             try:
                 Image.open(args.input_path) # Just to test if file is image
-                self.encode(args.input_path, args.output_path)
+                self.encode(args.input_path)
             except IOError as err:
                 print("Error: File is not a image file: " + args.input_path)
         else:
@@ -73,7 +76,7 @@ class Encoder(object):
                 try:
                     # to check if file is valid image
                     Image.open(fil.path)
-                    self.encode(fil.path, args.output_path)
+                    self.encode(fil.path)
                 except IOError as err:
                     print("Warning: Found non image file: " + fil.path)
                     pass
@@ -90,16 +93,15 @@ class Encoder(object):
     def load_image_to_gray(self, path):
         return cv2.cvtColor(cv2.imread(path, 1), cv2.COLOR_BGR2GRAY)
 
-    def encode(self, img_path, out_folder="intermediate_representation"):
+    def encode(self, img_path):
         """
         Executes the right encoding method depending on self.method set.
+        Converts img to grayscale and saves in self.output_path
         :return:
         """
-        # TODO: convert img to grayscale and save to out_folder
-
         img_lab_fullres = self.load_image(img_path)
         img_gray = self.load_image_to_gray(img_path)
-        ar_utils.save_img(out_folder, ar_utils.gen_new_gray_filename(img_path), img_gray)
+        ar_utils.save_img(self.output_path, ar_utils.gen_new_gray_filename(img_path), img_gray)
 
 
         mask = ar_utils.Mask()
@@ -109,7 +111,7 @@ class Encoder(object):
             # mask = ar_utils.Mask(size, p)
             mask = ar_utils.get_color_mask(img_lab_fullres, self.grid_size, self.size, self.p)
             # TODO: consider ditching gen. filenames and just use .mask ext
-            mask.save(out_folder, os.path.basename(filename_mask))
+            mask.save(self.output_path, os.path.basename(filename_mask))
             return mask
 
         elif self.method == "ideepcolor-px-selective":
@@ -117,9 +119,7 @@ class Encoder(object):
             pass
 
         elif self.method == "ideepcolor-global":
-            glob_dist = self.encode_ideepcolor_global(img_path, self.size)
-            ar_utils.save_glob_dist(out_folder, img_path, glob_dist)
-            return glob_dist
+            self.encode_ideepcolor_global(img_path, self.size)
 
         elif self.method == "HistoGAN":
             # TODO: implement
@@ -127,17 +127,26 @@ class Encoder(object):
 
 
     def encode_ideepcolor_global(self, img_path, size) -> np.ndarray:
+        os.environ['GLOG_minloglevel'] = '2' # suprress Caffe verbose prints
         import caffe
-        CI = importlib.import_module("interactive-deep-colorization.data.colorize_image")
         lab = importlib.import_module("interactive-deep-colorization.data.lab_gamut")
+
+        prev_wd = os.getcwd()
+        os.chdir('./interactive-deep-colorization')
         # models need to be downloaded before, using "interactive-deep-colorization/models/fetch_models.sh"
-        gt_glob_net = caffe.Net('./interactive-deep-colorization/models/global_model/global_stats.prototxt',  './interactive-deep-colorization/models/global_model/dummy.caffemodel', caffe.TEST)
+        global_stats_model = os.path.abspath('./models/global_model/global_stats.prototxt')
+        weights = os.path.abspath('./models/global_model/dummy.caffemodel')
+        gt_glob_net = caffe.Net(global_stats_model, 1, weights=weights)
+
         # load image
-        ref_img_fullres = caffe.io.load_image(img_path)
+        ref_img_fullres = caffe.io.load_image(os.path.abspath(img_path))
         img_glob_dist = (255*caffe.io.resize_image(ref_img_fullres,(size,size))).astype('uint8')
         gt_glob_net.blobs['img_bgr'].data[...] = img_glob_dist[:,:,::-1].transpose((2,0,1))
         gt_glob_net.forward()
         glob_dist_in = gt_glob_net.blobs['gt_glob_ab_313_drop'].data[0,:-1,0,0].copy()
+        os.chdir(prev_wd)
+
+        ar_utils.save_glob_dist(self.output_path, img_path, glob_dist_in)
         return glob_dist_in
 
 

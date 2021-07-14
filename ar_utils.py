@@ -196,9 +196,9 @@ def save_glob_dist(out_path, name, glob_dist, elements=313) -> str:
     if elements < 256:
         print("Elements < 256. You are wasting one Byte! Consider saving the index as unsigned char ('B')")
 
-    path = _encode_glob_dist_path(out_path, name)
+    path = _encode_glob_dist_path(os.path.join(out_path, os.path.basename(name)))
     # wb: write binary
-    with open("path", "wb") as f:
+    with open(path, "wb") as f:
         for idx, val in enumerate(glob_dist):
             # don't save elements without content
             if val == 0.:
@@ -209,14 +209,13 @@ def save_glob_dist(out_path, name, glob_dist, elements=313) -> str:
             f.write(struct.pack('f', val))
     return path
 
-def load_glob_dist(out_path, name, elements=313) -> np.ndarray:
+def load_glob_dist(img_path, elements=313) -> np.ndarray:
     """
-    :param path: output folder
-    :param name: either original image filename or full path to original image
+    :param img_path: path to image with sidecar .glob_dist file or file itself
     :param elements: length of glob_dist array.
     """
     glob_dist = np.zeros(elements)
-    path = _encode_glob_dist_path(out_path, name)
+    path = _encode_glob_dist_path(img_path)
     with open(path, "rb") as f:
         while True:
             # h: u short = 2 Byte
@@ -234,9 +233,11 @@ def load_glob_dist(out_path, name, elements=313) -> np.ndarray:
 
 
 
-def _encode_glob_dist_path(out_path, image) -> str:
-    img_name = os.path.basename(image)
+def _encode_glob_dist_path(img_path) -> str:
+    img_name = os.path.basename(img_path)
+    out_path = os.path.dirname(img_path)
     img_name_wo_ext, extension = os.path.splitext(img_name)
+    img_name_wo_ext, dummy = os.path.splitext(img_name_wo_ext)
     new_filename = img_name_wo_ext + ".glob_dist"
     new_path = os.path.join(out_path, new_filename)
     return new_path

@@ -8,7 +8,7 @@ from PIL import Image
 CI = importlib.import_module("interactive-deep-colorization.data.colorize_image")
 
 class Decoder(object):
-    def __init__(self, gpu_id=-1, method=ar_utils.methods[0], size=256, p=0, display_mask=False) -> None:
+    def __init__(self, output_path="output_images", gpu_id=-1, method=ar_utils.methods[0], size=256, p=0, display_mask=False) -> None:
         self.gpu_id = gpu_id
         self.methods = ar_utils.methods
         self.method = method
@@ -17,7 +17,7 @@ class Decoder(object):
         self.p = p
         self.display_mask = display_mask
         # self.input_path = input_path
-        # self.output_path = output_path
+        self.output_path = output_path
 
         self.maskcent = False
         self.color_model = 'colorization-pytorch/checkpoints/siggraph_caffemodel/latest_net_G.pth'
@@ -36,8 +36,8 @@ class Decoder(object):
                                help='Path to individual grayscale image with color sidecar file, or folder with multiple. ')
         parser.add_argument('-d', '--display_mask', action='store_true', dest='display_mask',
                                help='Whether to save the Intermediate Representation mask as an image for visualization. Only works with ideepcolor-px method. ')
-        parser.add_argument('-m', '--method', action='store', dest='method', type=str, default=self.methods[0],
-                            help='The colorization method to use. Possible values: \"' + ', '.join(self.methods) + '\"')
+        parser.add_argument('-m', '--method', action='store', dest='method', type=str, default=ar_utils.methods[0],
+                            help='The colorization method to use. Possible values: \"' + ', '.join(ar_utils.methods) + '\"')
         parser.add_argument('-w','--watch', dest='watch', help='watch input folder for new images', action='store_true')
 
         # for ideepcolor-px
@@ -57,9 +57,10 @@ class Decoder(object):
         # self.grid_size = args.grid_size
         self.p = args.p
         self.display_mask = args.display_mask
+        self.output_path = args.output_path
 
         try:
-            os.mkdir(args.output_path)
+            os.mkdir(self.output_path)
         except FileExistsError:
             pass
 
@@ -67,7 +68,7 @@ class Decoder(object):
         if not os.path.isdir(args.input_path):
             try:
                 Image.open(args.input_path) # Just to test if file is image
-                self.decode(args.input_path, args.output_path)
+                self.decode(args.input_path)
             except IOError as err:
                 print("Error: File is not a image file: " + args.input_path)
         else:
@@ -77,32 +78,29 @@ class Decoder(object):
                 try:
                     # to check if file is valid image
                     Image.open(fil.path) # Just to test if file is image
-                    self.decode(fil.path, args.output_path)
+                    self.decode(fil.path)
                 except IOError as err:
                     # print("Warning: Found non image file: " + fil.path)
                     pass
 
 
-    def decode(self, img_gray_path, output_path="output_images"):
+    def decode(self, img_gray_path):
         if self.method == "ideepcolor-px-grid":
             # filename_mask = ar_utils.gen_new_mask_filename(img_gray_path)
-            self.decode_ideepcolor_px(img_gray_path, output_path)
+            self.decode_ideepcolor_px(img_gray_path)
 
         elif self.method == "ideepcolor-px-selective":
             # TODO: implement
             pass
 
         elif self.method == "ideepcolor-global":
-            # glob_dist = self.decode_ideepcolor_global(img_path, size)
-            # ar_utils.save_glob_dist(out_folder, img_path, glob_dist)
-            # return glob_dist
-            pass
+            self.decode_ideepcolor_global(img_gray_path)
 
         elif self.method == "HistoGAN":
             # TODO: implement
             pass
 
-    def decode_ideepcolor_px(self, img_gray_path, output_path):
+    def decode_ideepcolor_px(self, img_gray_path):
         mask = ar_utils.Mask(self.size, self.p)
         mask.load(os.path.dirname(img_gray_path), os.path.basename(img_gray_path))
 
@@ -113,16 +111,39 @@ class Decoder(object):
 
         img_out = colorModel.net_forward(mask.input_ab, mask.mask)
         img_out_fullres = colorModel.get_img_fullres()
+        self._save_img_out(img_gray_path, img_out_fullres)
         new_rc_mask_filename = None
         if self.display_mask:
             img_mask_fullres = colorModel.get_input_img_fullres()
-            new_rc_mask_filename = ar_utils.gen_new_recolored_filename(img_gray_path, self.method+"_mask")
-            ar_utils.save(output_path, new_rc_mask_filename, img_mask_fullres)
+            self._save_img_out(img_gray_path, img_mask_fullres, method=self.method+"_mask")
 
-
-        new_rc_filename = ar_utils.gen_new_recolored_filename(img_gray_path, self.method)
-        ar_utils.save(output_path, new_rc_filename, img_out_fullres)
         return (img_out_fullres, new_rc_mask_filename)
+
+    def decode_ideepcolor_global(self, img_gray_path):
+        glob_dist = ar_utils.load_glob_dist(img_gray_path)
+        img_gray_abspath = os.path.abspath(img_gray_path)
+
+        prev_wd = os.getcwd()
+        os.chdir('./interactive-deep-colorization')
+        cid = CI.ColorizeImageCaffeGlobDist(self.size)
+        cid.prep_net(self.gpu_id, prototxt_path='./models/global_model/deploy_nodist.prototxt',
+                     caffemodel_path='./models/global_model/global_model.caffemodel')
+        cid.load_image(img_gray_abspath)
+        # dummy Mask
+        dummy_mask = ar_utils.Mask(self.size)
+        img_pred = cid.net_forward(dummy_mask.input_ab, dummy_mask.mask, glob_dist)
+        img_out_fullres = cid.get_img_fullres()
+        os.chdir(prev_wd)
+
+        self._save_img_out(img_gray_path, img_out_fullres)
+        return img_out_fullres
+
+    def _save_img_out(self, img_gray_path, img, method=None):
+        if method is None:
+            method = self.method
+        new_rc_filename = ar_utils.gen_new_recolored_filename(img_gray_path, method)
+        ar_utils.save(self.output_path, new_rc_filename, img)
+
 
 if __name__ == "__main__":
     dc = Decoder()

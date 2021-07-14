@@ -92,7 +92,16 @@ class Recolor(object):
 
         if not os.path.isdir(args.input_path):
             # TODO: check if image
+
             self.img_recolor(args, args.input_path)
+            # try:
+            #     # to check if valid image
+            #     Image.open(args.input_path)
+            #     self.img_recolor(args, args.input_path)
+            # except IOError as err:
+            #     print(err)
+            #     sys.exit()
+
 
         # colorize all pictures in folder
         elif os.path.isdir(args.input_path):
@@ -124,13 +133,13 @@ class Recolor(object):
         """
         Performs Encoding and Decoding at once
         """
-        ec = encoder.Encoder(method=args.method, size=args.size, p=args.p, grid_size=args.grid_size)
-        dc = decoder.Decoder(method=args.method, size=args.size, p=args.p, gpu_id=args.gpu_id)
+        ec = encoder.Encoder(output_path=args.intermediate_representation, method=args.method, size=args.size, p=args.p, grid_size=args.grid_size)
+        dc = decoder.Decoder(output_path=args.output_path, method=args.method, size=args.size, p=args.p, gpu_id=args.gpu_id)
 
-        ec.encode(input_image_path, args.intermediate_representation)
+        ec.encode(input_image_path)
         img_gray_name = ar_utils.gen_new_gray_filename(input_image_path)
         img_gray_path = os.path.join(args.intermediate_representation, img_gray_name)
-        dc.decode(img_gray_path, args.output_path)
+        dc.decode(img_gray_path)
 
         # img_out_fullres = None
         # img_in_fullres = None
