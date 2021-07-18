@@ -18,6 +18,10 @@ class Decoder(object):
         self.display_mask = display_mask
         # self.input_path = input_path
         self.output_path = output_path
+        try:
+            os.mkdir(self.output_path)
+        except FileExistsError:
+            pass
 
         self.maskcent = False
         self.color_model = 'colorization-pytorch/checkpoints/siggraph_caffemodel/latest_net_G.pth'
@@ -85,13 +89,9 @@ class Decoder(object):
 
 
     def decode(self, img_gray_path):
-        if self.method == "ideepcolor-px-grid":
+        if "ideepcolor-px" in self.method:
             # filename_mask = ar_utils.gen_new_mask_filename(img_gray_path)
             self.decode_ideepcolor_px(img_gray_path)
-
-        elif self.method == "ideepcolor-px-selective":
-            # TODO: implement
-            pass
 
         elif self.method == "ideepcolor-global":
             self.decode_ideepcolor_global(img_gray_path)
@@ -99,6 +99,8 @@ class Decoder(object):
         elif self.method == "HistoGAN":
             # TODO: implement
             pass
+        else:
+            print("Error: method not valid:", self.method)
 
     def decode_ideepcolor_px(self, img_gray_path):
         mask = ar_utils.Mask(self.size, self.p)

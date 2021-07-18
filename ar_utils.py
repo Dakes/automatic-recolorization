@@ -41,7 +41,6 @@ class Mask(object):
 
 
     def save(self, path, name, round_to_int=True, method="bytes"):
-        # TODO: also save size and p values
         # TODO: change to bitwise save
         save_path = os.path.join(path, gen_new_mask_filename(name))
 
@@ -63,13 +62,13 @@ class Mask(object):
                         writer.writerow(row)
 
         elif method == "bytes":
+            # TODO: ab / 2 -> 2 color values in one Byte
             if self.size > 256:
                 use_short_coord = True
                 coord_type = "H"
             else:
                 use_short_coord = False
                 coord_type = "B"
-            print(use_short_coord, coord_type)
             with open(save_path, "wb") as f:
                 # first two Bytes save the mask size. -> coord Byte size and for restoring mask size
                 f.write(struct.pack('H', self.size))
@@ -155,33 +154,13 @@ def save_img(path, name, img):
 
 # ideepcolor
 # Pixels
-def get_color_mask(img, grid_size=100, size=256, p=0):
-    """
-    :param img: original color image as lab (lab, y, x)
-    :param grid_size: distance between pixels of grid in pixels 0-256 (mask size)
-    :return Mask: Mask of pixels
-    """
-    # np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
 
-    # print(img[2][0][0])
-
-    mask = Mask(size=size, p=p)
-
-    h = len(img[0])
-    w = len(img[0][0])
-
-    for y in range(size):
-        if y % grid_size != 0:
-            continue
-        for x in range(size):
-            if x % grid_size != 0:
-                continue
-            y_img, x_img = _coord_mask_to_img(h, w, y, x, size)
-            mask.put_point((y, x), [ img[1][y_img][x_img], img[2][y_img][x_img] ])
-
-    # mask.put_point([135,160], 3, [100,-69])
-    # print(mask.input_ab)
-    return mask
+def get_fn_wo_ext(filepath):
+    filename = os.path.basename(filepath)
+    filename_wo_ext, first_extension = os.path.splitext(filename)
+    # ensure .gray.png extension is removed fully
+    filename_wo_ext, second_extension = os.path.splitext(filename_wo_ext)
+    return filename_wo_ext, first_extension, second_extension
 
 def gen_new_gray_filename(orig_fn):
     orig_fn_wo_ext, ext, dummy = get_fn_wo_ext(orig_fn)
@@ -192,23 +171,19 @@ def gen_new_recolored_filename(orig_fn, method):
     new_fn = orig_fn_wo_ext + "_recolored_" + method + ext
     return new_fn
 
-def gen_new_mask_filename(input_image_path) -> str:
+def gen_new_mask_filename(input_image_path, extra="") -> str:
     """
     Generates a new filename without extension by appending the parameters.
+    :param extra: if empty: nothing extra, else: String with extra info, like plot
     """
     orig_filename_wo_ext = get_fn_wo_ext(input_image_path)[0]
     # pixel_used = int( (load_size*load_size) / grid_size )
     # new_filename = orig_filename_wo_ext + "_" +  method + "_" + str(load_size) + "_" + str(grid_size) + "_" + str(pixel_used)
+    if extra:
+        orig_filename_wo_ext = orig_filename_wo_ext + "_" + extra
+    
     new_filename = orig_filename_wo_ext + ".mask"
     return new_filename
-
-def get_fn_wo_ext(filepath):
-    filename = os.path.basename(filepath)
-    filename_wo_ext, first_extension = os.path.splitext(filename)
-    # ensure .gray.png extension is removed fully
-    filename_wo_ext, second_extension = os.path.splitext(filename_wo_ext)
-    return filename_wo_ext, first_extension, second_extension
-
 
 # DEPRECATED
 def gen_new_hist_filename(method, input_image_path, load_size) -> str:

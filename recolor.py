@@ -62,6 +62,7 @@ class Recolor(object):
         parser.add_argument('-p', '--p', action='store', dest='p', type=int, default=0,
                                help='The "radius" the color values will have. \
                                A higher value means one color pixel will later cover multiple gray pixels. Default: 0')
+        parser.add_argument('-plt','--plot', dest='plot', help='Generate Plots for visualization', action='store_true')
 
         # TODO: test gpu on cuda gpu
         parser.add_argument('--gpu_id', dest='gpu_id', help='gpu id', type=int, default=-1)
@@ -107,7 +108,8 @@ class Recolor(object):
         elif os.path.isdir(args.input_path):
             try:
                 os.mkdir(args.output_path)
-            except FileExistsError:
+                os.mkdir(args.intermediate_representation)
+            except FileExistsError as err:
                 pass
             for root, d_names, f_names in os.walk(args.input_path):
                 for file_name in f_names:
@@ -115,17 +117,18 @@ class Recolor(object):
                     relative_path = os.path.relpath(file_path, args.input_path)
                     output_file = os.path.join(args.output_path, relative_path)
 
-                    out_folder = os.path.dirname(output_file)
-                    try:
-                        os.mkdir(out_folder)
-                    except FileExistsError:
-                        pass
+                    # out_folder = os.path.dirname(output_file)
+                    # try:
+                    #     os.mkdir(out_folder)
+                    # except FileExistsError:
+                    #     pass
 
                     try:
                         # to check if valid image
                         Image.open(file_path)
                         self.img_recolor(args, file_path) # TODO
                     except IOError as err:
+                        print(err)
                         pass
 
 
@@ -133,7 +136,7 @@ class Recolor(object):
         """
         Performs Encoding and Decoding at once
         """
-        ec = encoder.Encoder(output_path=args.intermediate_representation, method=args.method, size=args.size, p=args.p, grid_size=args.grid_size)
+        ec = encoder.Encoder(output_path=args.intermediate_representation, method=args.method, size=args.size, p=args.p, grid_size=args.grid_size, plot=args.plot)
         dc = decoder.Decoder(output_path=args.output_path, method=args.method, size=args.size, p=args.p, gpu_id=args.gpu_id)
 
         ec.encode(input_image_path)
@@ -210,6 +213,8 @@ class Recolor(object):
         distModel.prep_net(path=os.path.abspath(args.color_model), dist=True, gpu_id=args.gpu)
         distModel.load_image(input_image_path)
         # orig_lab_img = distModel.img_lab
+
+    
 
 
 
