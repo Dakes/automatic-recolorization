@@ -25,7 +25,7 @@ class Recolor(object):
         self.method = self.methods[0]
         # True for retrained, false for caffe model
         self.maskcent = False
-        self.load_size = 2048 # 256
+        self.load_size = 256
 
         # Whether to save the mask of colorization pixels
         self.input_mask = True
@@ -58,7 +58,7 @@ class Recolor(object):
                                The bigger, the more accurate the result, but requires more storage, and RAM capacity (decoder) \
                                (For 2048 up to 21GB RAM)')
         parser.add_argument('-g', '--grid_size', action='store', dest='grid_size', type=int, default=10,
-                               help='Spacing between color pixels in intermediate mask (--size)')
+                               help='Spacing between color pixels in intermediate mask (--size).  -1: fill every spot in mask.  0: dont use any color pixel ')
         parser.add_argument('-p', '--p', action='store', dest='p', type=int, default=0,
                                help='The "radius" the color values will have. \
                                A higher value means one color pixel will later cover multiple gray pixels. Default: 0')

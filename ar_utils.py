@@ -5,13 +5,12 @@ A place for helper functions for automatic-recolorization, like getting Histogra
 """
 
 import os
-from pickle import STRING
 import numpy as np
 import cv2
 import csv
 import struct
 
-methods = ["ideepcolor-px-grid", "ideepcolor-px-selective", "ideepcolor-global", "HistoGAN"]
+methods = ["ideepcolor-px-grid", "ideepcolor-px-selective", "ideepcolor-global","ideepcolor-stock", "HistoGAN"]
 
 class Mask(object):
     def __init__(self, size=256, p=1):

@@ -14,6 +14,9 @@ class Decoder(object):
         self.method = method
         self.watch = False
         self.size = size
+        # set default size for global mode
+        if self.method == self.methods[2]:
+            self.size = 256
         self.p = p
         self.display_mask = display_mask
         # self.input_path = input_path
@@ -54,6 +57,7 @@ class Decoder(object):
         parser.add_argument('-p', '--p', action='store', dest='p', type=int, default=0,
                                help='The "radius" the color values will have. \
                                A higher value means one color pixel will later cover multiple gray pixels. Default: 0')
+        
         args = parser.parse_args()
         self.method = args.method
         self.watch = args.watch
@@ -96,6 +100,11 @@ class Decoder(object):
         elif self.method == "ideepcolor-global":
             self.decode_ideepcolor_global(img_gray_path)
 
+        # ideepcolor-stock
+        elif self.method == ar_utils.methods[3]:
+            # same as global, but without global hints
+            self.decode_ideepcolor_global(img_gray_path, stock=True)
+
         elif self.method == "HistoGAN":
             # TODO: implement
             pass
@@ -121,8 +130,7 @@ class Decoder(object):
 
         return (img_out_fullres, new_rc_mask_filename)
 
-    def decode_ideepcolor_global(self, img_gray_path):
-        glob_dist = ar_utils.load_glob_dist(img_gray_path)
+    def decode_ideepcolor_global(self, img_gray_path, stock=False):
         img_gray_abspath = os.path.abspath(img_gray_path)
 
         prev_wd = os.getcwd()
@@ -133,7 +141,11 @@ class Decoder(object):
         cid.load_image(img_gray_abspath)
         # dummy Mask
         dummy_mask = ar_utils.Mask(self.size)
-        img_pred = cid.net_forward(dummy_mask.input_ab, dummy_mask.mask, glob_dist)
+        if not stock:
+            glob_dist = ar_utils.load_glob_dist(img_gray_path)
+            img_pred = cid.net_forward(dummy_mask.input_ab, dummy_mask.mask, glob_dist)
+        else:
+            img_pred = cid.net_forward(dummy_mask.input_ab, dummy_mask.mask)
         img_out_fullres = cid.get_img_fullres()
         os.chdir(prev_wd)
 

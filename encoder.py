@@ -18,6 +18,9 @@ class Encoder(object):
         self.method = method
         self.watch = False
         self.size = size
+        # set default size for global mode
+        if self.method == self.methods[2]:
+            self.size = 256
         self.p = p
         self.grid_size = grid_size
         # self.input_path = input_path
@@ -49,7 +52,7 @@ class Encoder(object):
                                The bigger, the more accurate the result, but requires more storage, and RAM capacity (decoder) \
                                (For 2048 up to 21GB RAM)')
         parser.add_argument('-g', '--grid_size', action='store', dest='grid_size', type=int, default=10,
-                               help='Spacing between color pixels in intermediate mask (--size)')
+                               help='Spacing between color pixels in intermediate mask (--size)  -1: fill every spot in mask.  0: dont use any color pixel ')
         parser.add_argument('-p', '--p', action='store', dest='p', type=int, default=0,
                                help='The "radius" the color values will have. \
                                A higher value means one color pixel will later cover multiple gray pixels. Default: 0')
@@ -130,6 +133,10 @@ class Encoder(object):
         elif self.method == "ideepcolor-global":
             self.encode_ideepcolor_global(img_path, self.size)
 
+        # ideepcolor-stock: no encoding necessary
+        elif self.method == ar_utils.methods[3]:
+            pass
+
         elif self.method == "HistoGAN":
             # TODO: implement
             pass
@@ -166,11 +173,13 @@ class Encoder(object):
     def get_color_mask_grid(self, img, grid_size=100, size=256, p=0):
         """
         :param img: original color image as lab (lab, y, x)
-        :param grid_size: distance between pixels of grid in pixels 0-256 (mask size)
+        :param grid_size: distance between pixels of grid in pixels 0 - mask size (-1: every space filled, 0: None filled (stock coloring))
         :return Mask: Mask of pixels
         """
         # TODO: save plot of grid
         mask = ar_utils.Mask(size=size, p=p)
+        if grid_size == 0:
+            return mask
 
         h = len(img[0])
         w = len(img[0][0])
@@ -191,7 +200,7 @@ class Encoder(object):
 
     # Everything for selective color mask
 
-    def get_color_mask_selective(self, img, round_to=20):
+    def get_color_mask_selective(self, img, round_to=10):
         # PARAM: hardcoded, round_to
         from skimage.filters import gaussian
         from skimage import color
@@ -202,7 +211,7 @@ class Encoder(object):
         b = img[2].astype(int)
 
         # PARAM: calculated sigma
-        sigma = min(a.shape)/150
+        sigma = min(a.shape)/100
 
         a_blur = gaussian(a, sigma, preserve_range=True)
         b_blur = gaussian(b, sigma, preserve_range=True)
