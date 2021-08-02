@@ -2,6 +2,7 @@
 
 import argparse
 import importlib
+import traceback
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
@@ -31,6 +32,7 @@ class Recolor(object):
         self.input_mask = True
         # Whether to open an extra window with the output
         self.show_plot = False
+        self.ir_folder = None
 
 
     def main(self):
@@ -86,6 +88,9 @@ class Recolor(object):
             sys.exit(1)
         self.method = args.method
 
+        self.ir_path = os.path.abspath(args.intermediate_representation)
+        args.intermediate_representation = self.ir_path
+
         if not os.path.isdir(args.input_path):
             if not os.path.isfile(args.input_path):
                 print('The input_path is not a directory or file')
@@ -126,9 +131,12 @@ class Recolor(object):
                     try:
                         # to check if valid image
                         Image.open(file_path)
-                        self.img_recolor(args, file_path) # TODO
+                        self.img_recolor(args, file_path)
                     except IOError as err:
+                        print("Skipping non image file: ", file_path)
                         print(err)
+                        # traceback.print_exc()
+                        print()
                         pass
 
 

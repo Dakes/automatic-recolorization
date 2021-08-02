@@ -52,7 +52,7 @@ class Encoder(object):
                                The bigger, the more accurate the result, but requires more storage, and RAM capacity (decoder) \
                                (For 2048 up to 21GB RAM)')
         parser.add_argument('-g', '--grid_size', action='store', dest='grid_size', type=int, default=10,
-                               help='Spacing between color pixels in intermediate mask (--size)  -1: fill every spot in mask.  0: dont use any color pixel ')
+                               help='Spacing between color pixels in intermediate mask (--size)  1: fill every spot in mask.  0: dont use any color pixel ')
         parser.add_argument('-p', '--p', action='store', dest='p', type=int, default=0,
                                help='The "radius" the color values will have. \
                                A higher value means one color pixel will later cover multiple gray pixels. Default: 0')
@@ -123,12 +123,10 @@ class Encoder(object):
             mask = None
             if self.method == "ideepcolor-px-grid":
                 mask = self.get_color_mask_grid(img_lab_fullres, self.grid_size, self.size, self.p)
+                mask.save(self.output_path, os.path.basename(filename_mask), grid_size=self.grid_size)
             elif self.method == "ideepcolor-px-selective":
                 mask = self.get_color_mask_selective(img_lab_fullres)
-
-            if not mask:
-                raise Exception("wrong method, mask not defined")
-            mask.save(self.output_path, os.path.basename(filename_mask))
+                mask.save(self.output_path, os.path.basename(filename_mask))
 
         elif self.method == "ideepcolor-global":
             self.encode_ideepcolor_global(img_path, self.size)
@@ -152,7 +150,12 @@ class Encoder(object):
 
         img_path = os.path.abspath(img_path)
         prev_wd = os.getcwd()
-        os.chdir('./interactive-deep-colorization')
+
+        ideepcolor_folder = "./interactive-deep-colorization"
+        # check if already in folder
+        if not os.path.basename(ideepcolor_folder) == os.path.basename(os.getcwd()):
+            os.chdir(ideepcolor_folder)
+            
         # models need to be downloaded before, using "interactive-deep-colorization/models/fetch_models.sh"
         global_stats_model = os.path.abspath('./models/global_model/global_stats.prototxt')
         weights = os.path.abspath('./models/global_model/dummy.caffemodel')
@@ -183,6 +186,7 @@ class Encoder(object):
 
         h = len(img[0])
         w = len(img[0][0])
+
 
         for y in range(size):
             if y % grid_size != 0:

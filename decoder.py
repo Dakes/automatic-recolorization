@@ -134,7 +134,11 @@ class Decoder(object):
         img_gray_abspath = os.path.abspath(img_gray_path)
 
         prev_wd = os.getcwd()
-        os.chdir('./interactive-deep-colorization')
+        ideepcolor_folder = "./interactive-deep-colorization"
+        # check if already in folder
+        if not os.path.basename(ideepcolor_folder) == os.path.basename(os.getcwd()):
+            os.chdir(ideepcolor_folder)
+        
         cid = CI.ColorizeImageCaffeGlobDist(self.size)
         cid.prep_net(self.gpu_id, prototxt_path='./models/global_model/deploy_nodist.prototxt',
                      caffemodel_path='./models/global_model/global_model.caffemodel')
