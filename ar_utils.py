@@ -65,15 +65,13 @@ class Mask(object):
 
         elif method == "bytes":
             if self.size > 256:
-                use_short_coord = True
                 coord_type = "H"
             else:
-                use_short_coord = False
                 coord_type = "B"
             with open(save_path, "wb") as f:
                 # first two Bytes save the mask size. -> coord Byte size and for restoring mask size
                 f.write(struct.pack("H", self.size))
-                # 3. Byte stores p size and if mask size is saved in next 2 Bytes -> last bit 1 (unsigned char "B")
+                # 3. Byte stores p size and if grid size is saved in next 2 Bytes -> last bit 1 (unsigned char "B")
                 third_byte = self.p
                 if grid_size:
                     # assuming p size is <128, which would be ridiculous anyway
@@ -89,8 +87,8 @@ class Mask(object):
                             continue
                         a = int(self.input_ab[0][y][x])
                         b = int(self.input_ab[1][y][x])
-                        # grid_size 1 does not need coordinates. If all in self.mask not 0 -> grid size 1
-                        if not grid_size:
+                        # Not using grid, save coordinates
+                        if grid_size is None:
                             f.write(struct.pack(coord_type, y))
                             f.write(struct.pack(coord_type, x))
                         f.write(struct.pack("b", a))
@@ -134,38 +132,36 @@ class Mask(object):
                 self._init_mask()
                 # 3. Byte: p size
                 third_byte = struct.unpack("B", f.read(1))[0]
-                # if third byte <128 -> non 1 grid size -> coordinates needed
+                # if lsb is 0 (<128) -> no grid_size saved -> coordinates needed
                 self.p = third_byte & 0b1111111
-                coords_saved = True
                 grid_size = None
                 if (third_byte - self.p) >= (1 << 7):
-                    coords_saved = False
                     # read optional 4. Byte
                     grid_size = struct.unpack("B", f.read(1))[0]
 
-                coord_type, coord_bytes = (
-                    ("H", 2) if saved_mask_size > 256 else ("B", 1)
-                )
+                coord_type, coord_bytes = ( ("H", 2) if saved_mask_size > 256 else ("B", 1) )
                 for y in range(self.size):
                     for x in range(self.size):
                         if grid_size:
                             if y % grid_size != 0 or x % grid_size != 0:
                                 continue
-                            if not grid_size:
-                                y = f.read(coord_bytes)
-                                x = f.read(coord_bytes)
-                                if not all((y, x)):
-                                    break
-                                y = struct.unpack(coord_type, y)[0]
-                                x = struct.unpack(coord_type, x)[0]
-
-                            a = f.read(1)
-                            b = f.read(1)
-                            if not all((a, b)):
+                        if grid_size is None:
+                            y = f.read(coord_bytes)
+                            x = f.read(coord_bytes)
+                            if not all((y, x)):
                                 break
-                            a = struct.unpack("b", a)[0]
-                            b = struct.unpack("b", b)[0]
-                            self.put_point((y, x), (a, b))
+                            y = struct.unpack(coord_type, y)[0]
+                            x = struct.unpack(coord_type, x)[0]
+
+                        a = f.read(1)
+                        b = f.read(1)
+                        if not all((a, b)):
+                            break
+                        a = struct.unpack("b", a)[0]
+                        b = struct.unpack("b", b)[0]
+                        self.put_point((y, x), (a, b))
+        print(self.mask.any())
+        print(self.input_ab.any())
 
 
 
