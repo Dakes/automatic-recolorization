@@ -235,19 +235,6 @@ class Encoder(object):
                                        (img.shape[1] // scaling_factor, img.shape[2] // scaling_factor),
                                        anti_aliasing=True)
 
-        # Bilateral Filter; Edge preserving blur
-        # PARAM: sigma_spatial, (/500)
-        sigma_spatial = min(img.shape[-1:]) / 250
-        print("Sigma Spatial (Bilateral)", sigma_spatial)
-        # PARAM: sigma_color: sig-default*100
-        sigma_color = restoration.estimate_sigma(img_resized)*100
-        # img_resized = cv2.bilateralFilter(np.uint8(img_resized), -1, 2, 10)
-        print("Sigma Color (Bilateral)", sigma_color)
-        img_resized = restoration.denoise_bilateral(img_resized, multichannel=True,
-                                                    sigma_spatial=sigma_spatial,
-                                                    sigma_color=sigma_color)
-
-
         img_resized = self.rgb_to_lab(img_resized)
 
         a_orig = img[1].astype(int)
@@ -256,18 +243,34 @@ class Encoder(object):
         a = img_resized[1].astype(int)
         b = img_resized[2].astype(int)
 
-
-        # shift ab into positive
+        # shift ab into positive (to make filters work)
         a = a.astype(int)+100
         b = b.astype(int)+100
-        
+
+        # Bilateral Filter; Edge preserving blur
+        # PARAM: sigma_spatial, (/250)
+        sigma_spatial = min(img.shape[-1:]) / 250
+        print("Sigma Spatial (Bilateral)", sigma_spatial)
+        # PARAM: sigma_color: sig-default*100
+        sigma_color = restoration.estimate_sigma(img_resized)*1000
+        print("Sigma Color (Bilateral)", sigma_color)
+        # img_resized = restoration.denoise_bilateral(img_resized, multichannel=True,
+        #                                             sigma_spatial=sigma_spatial,
+        #                                             sigma_color=sigma_color)
+
+        a = restoration.denoise_bilateral(a.astype(float), multichannel=False,
+                                                    sigma_spatial=sigma_spatial,
+                                                    sigma_color=sigma_color)
+        b = restoration.denoise_bilateral(b.astype(float), multichannel=False,
+                                                    sigma_spatial=sigma_spatial,
+                                                    sigma_color=sigma_color)
+
         # Gaussian blur; smooth out colors a bit more, reduces points overall
         # PARAM: calculated sigma
-        sigma = min(a.shape)/250 # Gaussian (/250)
+        sigma = min(a.shape)/150 # Gaussian (/250)
         print("Sigma Gaussian:", sigma)
         a = filters.gaussian(a, sigma, preserve_range=True)
         b = filters.gaussian(b, sigma, preserve_range=True)
-
 
 
         # shift back to ab space -100-100
