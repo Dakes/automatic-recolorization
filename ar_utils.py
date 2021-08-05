@@ -160,9 +160,6 @@ class Mask(object):
                         a = struct.unpack("b", a)[0]
                         b = struct.unpack("b", b)[0]
                         self.put_point((y, x), (a, b))
-        print(self.mask.any())
-        print(self.input_ab.any())
-
 
 
 # TODO: rename to save_img_lab

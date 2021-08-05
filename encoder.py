@@ -5,6 +5,7 @@
 
 import os, sys
 import argparse
+from typing_extensions import ParamSpecArgs
 import cv2
 import numpy as np
 from skimage import color
@@ -95,11 +96,14 @@ class Encoder(object):
 
 
 
-    def load_image(self, path):
-        # load image to lab
-        img_rgb = cv2.cvtColor(cv2.imread(path, 1), cv2.COLOR_BGR2RGB)
-        img_lab_fullres = color.rgb2lab(img_rgb).transpose((2, 0, 1))
-        return img_lab_fullres
+    def load_image(self, path, colorspace="lab"):
+        if colorspace == "lab":
+            img_rgb = cv2.cvtColor(cv2.imread(path, 1), cv2.COLOR_BGR2RGB)
+            img_lab_fullres = color.rgb2lab(img_rgb).transpose((2, 0, 1))
+            return img_lab_fullres
+        elif colorspace == "rgb":
+            img = cv2.cvtColor(cv2.imread(path, 1), cv2.COLOR_BGR2RGB)
+            return img
 
     def load_image_to_gray(self, path):
         return cv2.cvtColor(cv2.imread(path, 1), cv2.COLOR_BGR2GRAY)
@@ -125,7 +129,7 @@ class Encoder(object):
                 mask = self.get_color_mask_grid(img_lab_fullres, self.grid_size, self.size, self.p)
                 mask.save(self.output_path, os.path.basename(filename_mask), grid_size=self.grid_size)
             elif self.method == "ideepcolor-px-selective":
-                mask = self.get_color_mask_selective(img_lab_fullres)
+                mask = self.get_color_mask_selective(img_lab_fullres, img_path)
                 mask.save(self.output_path, os.path.basename(filename_mask))
 
         elif self.method == "ideepcolor-global":
@@ -204,44 +208,95 @@ class Encoder(object):
 
     # Everything for selective color mask
 
-    def get_color_mask_selective(self, img, round_to=10):
+    def get_color_mask_selective(self, img, img_path, round_to=10, scaling_factor=8):
         # PARAM: hardcoded, round_to
-        from skimage.filters import gaussian
-        from skimage import color
-        
+        # PARAM: hardcoded, scaling_factor: 8 for highres, or higher. 4, 2 for cityscapes and low res
+        scaling_factor = int( min(img.shape[-2:])/200 ) # cityscapes -> 2, dragon_pool -> 12
+        from skimage import filters, color, restoration, util, transform
+        import concurrent.futures
+
         mask = ar_utils.Mask(size=self.size, p=self.p)
-        L = img[0].astype(int)
-        a = img[1].astype(int)
-        b = img[2].astype(int)
+        # reload as rgb 0-255
+        rgb = self.load_image(img_path, colorspace="rgb")
 
+        # Median Filter; remove extreme individual noise pixels
+        # PARAM: k for median blur
+        k = 5
+        rgb = cv2.medianBlur(rgb, k)
+        
+        # scale down image
+        img_resized = transform.resize(rgb,
+                                       (img.shape[1] // scaling_factor, img.shape[2] // scaling_factor),
+                                       anti_aliasing=True)
+
+        # Bilateral Filter; Edge preserving blur
+        # PARAM: sigma_spatial
+        sigma_spatial = min(img_resized.shape)/500
+        # PARAM: sigma_color: sig-default*100
+        sigma_color = restoration.estimate_sigma(img_resized)*10
+        # img_resized = cv2.bilateralFilter(np.uint8(img_resized), -1, 2, 10)
+        img_resized = restoration.denoise_bilateral(img_resized, multichannel=True,
+                                                    sigma_spatial=sigma_spatial,
+                                                    sigma_color=sigma_color)
+        
+        img_resized = self.rgb_to_lab(img_resized)
+
+        a_orig = img[1].astype(int)
+        b_orig = img[2].astype(int)
+        L = img_resized[0].astype(int)
+        a = img_resized[1].astype(int)
+        b = img_resized[2].astype(int)
+
+        # shift ab into positive
+        a = a+100
+        b = b+100
+
+        # convert back to int and shift back to ab space -100-100
+        a = util.img_as_ubyte(a).astype(float)-100
+        b = util.img_as_ubyte(b).astype(float)-100
+
+        # Gaussian blur; smooth out colors a bit more
         # PARAM: calculated sigma
-        sigma = min(a.shape)/100
+        sigma = min(a.shape)/150 # Gaussian (/150)
+        a = filters.gaussian(a, sigma, preserve_range=True)
+        b = filters.gaussian(b, sigma, preserve_range=True)
 
-        a_blur = gaussian(a, sigma, preserve_range=True)
-        b_blur = gaussian(b, sigma, preserve_range=True)
-        ab = self.get_ab(a_blur, b_blur, round_to)
+
+        
+        ab = self.get_ab(a, b, round_to)
         ab_ids = self.set_color_area_ids(ab)
         centres = self.get_centres(ab_ids)
 
+        # delete points near edges, since sometimes they tend to bunch on the edges, and those are not super important for colorization anyway
+        h, w = a.shape
+        dist = 2 # distance from edges
+        keep = np.ones(len(centres), dtype=bool)
+        for idx, c in enumerate(centres):
+            if c[0] < dist or c[0] > h-dist or c[1] < dist or c[1] > w-dist:
+                keep[idx] = False
+        centres = centres[keep]
+        
+        # Save image with red dots for selected pixels
         if self.plot:
             import matplotlib.pyplot as plt
-            from skimage.color import lab2rgb
-            rgb = np.fliplr(np.rot90(lab2rgb(np.transpose(img)), 3))
+            rgb = self.lab_to_rgb(img)
             plt.imshow(rgb)
-            y = [row[0] for row in centres]
-            x = [row[1] for row in centres]
+            y = np.array( [row[0] for row in centres] )*scaling_factor
+            x = np.array( [row[1] for row in centres] )*scaling_factor
             plt.scatter(x=x, y=y, c='r', s=1)
             # TODO: save plot
             plt_fn = ar_utils.gen_new_mask_filename(self.image_path, "selective_plot")
             plt_path = os.path.join(self.output_path, plt_fn)
             plt.savefig(plt_path+".png", bbox_inches='tight', dpi=1500)
+            plt.clf()
+            plt.close()
 
         # Use found interesting pixels as coordinates to fill mask
-        h, w = a.shape
+        h, w = a_orig.shape
         for px in centres:
-            # TODO: convert global to mask coordinates
-            loc = (px[0], px[1])
-            val = (a[loc], b[loc])
+            # scale up to resolution of input image
+            loc = (px[0]*scaling_factor, px[1]*scaling_factor)
+            val = (a_orig[loc], b_orig[loc])
             loc = ar_utils._coord_img_to_mask(h, w, loc[0], loc[1], size=self.size)
             mask.put_point(loc, val)
 
@@ -255,7 +310,7 @@ class Encoder(object):
 
     def get_ab(self, a, b, round_to=10):
         """
-        Returns an arraycombined of a and b channels, where each color value has a unique value
+        Returns an array combined of a and b channels, where each color value has a unique value
         """
         an = self.round_arr_to(a, round_to)
         bn = self.round_arr_to(b, round_to)
@@ -312,11 +367,12 @@ class Encoder(object):
             # get centre
             centre = ( int((sum(area_coords_y)/len(area_coords_y)))
                     , int((sum(area_coords_x)/len(area_coords_x))) )
-            
+
             # since centre could be outside shape, search nearest point to centre
             closest = None
             dist = float('inf')
             # TODO: get more points if area is above certain size
+            # NOTE: this is really slow, if centre not in shape. Maybe just use a random point. 
             for idx, i in enumerate(area_coords_y):
                 # break if calculated centre is inside area
                 if centre[0] in area_coords_y and centre[1] in area_coords_x:
@@ -330,7 +386,23 @@ class Encoder(object):
             centres.append(closest)
         return np.array(centres)
 
-        
+    def rgb_to_lab(self, rgb):
+        return color.rgb2lab(rgb).transpose((2, 0, 1))
+
+    def lab_to_rgb(self, *args):
+        """
+        Either takes lab array of shape (3, h, w) or as 3 separate 2D Arrays, l, a, b
+        """
+        lab = None
+        if len(args) == 1:
+            lab = args[0]
+        elif len(args) == 3:
+            lab = [args[0], args[1], args[2]]
+        else:
+            print("Wrong number of arguments in lab_to_rgb. ")
+            return None
+        return np.fliplr(np.rot90(color.lab2rgb(np.transpose(lab)), 3))
+
 
 
 if __name__ == "__main__":
