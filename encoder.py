@@ -208,12 +208,13 @@ class Encoder(object):
 
     # Everything for selective color mask
 
-    def get_color_mask_selective(self, img, img_path, round_to=10, scaling_factor=8):
-        # PARAM: hardcoded, round_to
-        # PARAM: hardcoded, scaling_factor: 8 for highres, or higher. 4, 2 for cityscapes and low res
-        scaling_factor = int( min(img.shape[-2:])/200 ) # cityscapes -> 2, dragon_pool -> 12
+    def get_color_mask_selective(self, img, img_path, round_to=10, scaling_factor=None):
         from skimage import filters, color, restoration, util, transform
-        import concurrent.futures
+        # PARAM: hardcoded, round_to (for cityscapes rather smaller (8). Default: 10)
+        # PARAM: hardcoded, scaling_factor: 8 for highres, or higher. 4, 2 for cityscapes and low res
+        if not scaling_factor:
+            scaling_factor = int( min(img.shape[-2:])/250 ) # cityscapes(vga; w:480) -> 2, dragon_pool(w:2370) -> 9
+        print("Scaling factor: ", scaling_factor)
 
         mask = ar_utils.Mask(size=self.size, p=self.p)
         # reload as rgb 0-255
@@ -223,6 +224,11 @@ class Encoder(object):
         # PARAM: k for median blur
         k = 5
         rgb = cv2.medianBlur(rgb, k)
+
+        # for picking out color values without noise later
+        lab_median = self.rgb_to_lab(rgb)
+        a_median = lab_median[1].astype(int)
+        b_median = lab_median[2].astype(int)
         
         # scale down image
         img_resized = transform.resize(rgb,
@@ -230,15 +236,18 @@ class Encoder(object):
                                        anti_aliasing=True)
 
         # Bilateral Filter; Edge preserving blur
-        # PARAM: sigma_spatial
-        sigma_spatial = min(img_resized.shape)/500
+        # PARAM: sigma_spatial, (/500)
+        sigma_spatial = min(img.shape[-1:]) / 250
+        print("Sigma Spatial (Bilateral)", sigma_spatial)
         # PARAM: sigma_color: sig-default*100
-        sigma_color = restoration.estimate_sigma(img_resized)*10
+        sigma_color = restoration.estimate_sigma(img_resized)*100
         # img_resized = cv2.bilateralFilter(np.uint8(img_resized), -1, 2, 10)
+        print("Sigma Color (Bilateral)", sigma_color)
         img_resized = restoration.denoise_bilateral(img_resized, multichannel=True,
                                                     sigma_spatial=sigma_spatial,
                                                     sigma_color=sigma_color)
-        
+
+
         img_resized = self.rgb_to_lab(img_resized)
 
         a_orig = img[1].astype(int)
@@ -247,22 +256,24 @@ class Encoder(object):
         a = img_resized[1].astype(int)
         b = img_resized[2].astype(int)
 
+
         # shift ab into positive
-        a = a+100
-        b = b+100
-
-        # convert back to int and shift back to ab space -100-100
-        a = util.img_as_ubyte(a).astype(float)-100
-        b = util.img_as_ubyte(b).astype(float)-100
-
-        # Gaussian blur; smooth out colors a bit more
+        a = a.astype(int)+100
+        b = b.astype(int)+100
+        
+        # Gaussian blur; smooth out colors a bit more, reduces points overall
         # PARAM: calculated sigma
-        sigma = min(a.shape)/150 # Gaussian (/150)
+        sigma = min(a.shape)/250 # Gaussian (/250)
+        print("Sigma Gaussian:", sigma)
         a = filters.gaussian(a, sigma, preserve_range=True)
         b = filters.gaussian(b, sigma, preserve_range=True)
 
 
-        
+
+        # shift back to ab space -100-100
+        a = util.img_as_ubyte(a.astype(int)).astype(int)-100
+        b = util.img_as_ubyte(b.astype(int)).astype(int)-100
+
         ab = self.get_ab(a, b, round_to)
         ab_ids = self.set_color_area_ids(ab)
         centres = self.get_centres(ab_ids)
@@ -296,7 +307,8 @@ class Encoder(object):
         for px in centres:
             # scale up to resolution of input image
             loc = (px[0]*scaling_factor, px[1]*scaling_factor)
-            val = (a_orig[loc], b_orig[loc])
+            # use colors from median filtered image
+            val = (a_median[loc], b_median[loc])
             loc = ar_utils._coord_img_to_mask(h, w, loc[0], loc[1], size=self.size)
             mask.put_point(loc, val)
 
