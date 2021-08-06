@@ -249,10 +249,10 @@ class Encoder(object):
 
         # Bilateral Filter; Edge preserving blur
         # PARAM: sigma_spatial, (/250)
-        sigma_spatial = min(img.shape[-1:]) / 250
+        sigma_spatial = min(img.shape[-1:]) / 500
         print("Sigma Spatial (Bilateral)", sigma_spatial)
         # PARAM: sigma_color: sig-default*100
-        sigma_color = restoration.estimate_sigma(img_resized)*1000
+        sigma_color = None#restoration.estimate_sigma(img_resized)*100
         print("Sigma Color (Bilateral)", sigma_color)
         # img_resized = restoration.denoise_bilateral(img_resized, multichannel=True,
         #                                             sigma_spatial=sigma_spatial,
@@ -267,11 +267,10 @@ class Encoder(object):
 
         # Gaussian blur; smooth out colors a bit more, reduces points overall
         # PARAM: calculated sigma
-        sigma = min(a.shape)/150 # Gaussian (/250)
+        sigma = min(a.shape)/250 # Gaussian (/250)
         print("Sigma Gaussian:", sigma)
         a = filters.gaussian(a, sigma, preserve_range=True)
-        b = filters.gaussian(b, sigma, preserve_range=True)
-
+        b = filters.gaussian(b, sigma, preserve_range=True)        
 
         # shift back to ab space -100-100
         a = util.img_as_ubyte(a.astype(int)).astype(int)-100
@@ -367,11 +366,14 @@ class Encoder(object):
                 id_ = id_+1
         return ab
 
-    def get_centres(self, ab_ids):
+    def get_centres(self, ab_ids, random_px_threshold=1000):
         """
         Returns the most centre pixel position of every blob with a unique id
+        :param ab_ids: 2D Array of combined a&b channel, where each self-contained unique blob is replaced with a id
+        :param random_px_threshold: size of blob, at which to add new random pixels. 
         """
         import scipy.spatial.distance
+        import random
         ids =  np.unique(ab_ids)
         centres = []
 
@@ -379,15 +381,18 @@ class Encoder(object):
             area_coords = np.where(ab_ids == id)
             area_coords_y = area_coords[0]
             area_coords_x = area_coords[1]
+            # Skip extremely small blobs of only a few pixels
+            if len(area_coords_y) <= 4:
+                continue
             # get centre
-            centre = ( int((sum(area_coords_y)/len(area_coords_y)))
-                    , int((sum(area_coords_x)/len(area_coords_x))) )
+            centre = ( int((sum(area_coords_y)/len(area_coords_y))),
+                       int((sum(area_coords_x)/len(area_coords_x))) )
 
             # since centre could be outside shape, search nearest point to centre
             closest = None
             dist = float('inf')
             # TODO: get more points if area is above certain size
-            # NOTE: this is really slow, if centre not in shape. Maybe just use a random point. 
+            # NOTE: this is really slow, if centre not in shape. Maybe just use a random point in this case. 
             for idx, i in enumerate(area_coords_y):
                 # break if calculated centre is inside area
                 if centre[0] in area_coords_y and centre[1] in area_coords_x:
@@ -399,6 +404,16 @@ class Encoder(object):
                     dist = n_dist
                     closest = (area_coords_y[idx], area_coords_x[idx])
             centres.append(closest)
+
+            # if current blob is particularly large, use additional randomly selected pixels (+1 px per 1000 in blob)
+            if len(area_coords_y) >= random_px_threshold:
+                add_px = int( len(area_coords_y) / random_px_threshold )
+                for i in range(add_px):
+                    random.seed(0)
+                    new_coord = random.randint(0, len(area_coords_y)-1)
+                    new_px = (area_coords_y[new_coord], area_coords_x[new_coord])
+                    centres.append(new_px)
+                    
         return np.array(centres)
 
     def rgb_to_lab(self, rgb):
