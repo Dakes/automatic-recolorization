@@ -8,7 +8,7 @@ from PIL import Image
 CI = importlib.import_module("interactive-deep-colorization.data.colorize_image")
 
 class Decoder(object):
-    def __init__(self, output_path="output_images", gpu_id=-1, method=ar_utils.methods[0], size=256, p=0, display_mask=False) -> None:
+    def __init__(self, output_path="output_images", gpu_id=-1, method=ar_utils.methods[0], size=256, p=0, plot=False) -> None:
         self.gpu_id = gpu_id
         self.methods = ar_utils.methods
         self.method = method
@@ -18,45 +18,89 @@ class Decoder(object):
         if self.method == self.methods[2]:
             self.size = 256
         self.p = p
-        self.display_mask = display_mask
+        self.plot = plot
         # self.input_path = input_path
         self.output_path = output_path
         try:
-            os.mkdir(self.output_path)
+            os.makedirs(self.output_path, exist_ok=True)
         except FileExistsError:
             pass
 
         self.maskcent = False
         self.color_model = 'colorization-pytorch/checkpoints/siggraph_caffemodel/latest_net_G.pth'
+        self.caffe_net = "./models/reference_model/deploy_nodist.prototxt"
+        self.caffe_model = "./models/reference_model/model.caffemodel"
+        self.global_prototxt = "./models/global_model/deploy_nodist.prototxt"
+        self.global_caffemodel = "./models/global_model/global_model.caffemodel"
 
         sys.path.insert(1, os.path.abspath("interactive-deep-colorization"))
+        os.environ['GLOG_minloglevel'] = '2'  # supress Caffe verbose prints
 
 
     def main(self):
-        parser = argparse.ArgumentParser(prog='Recolor Decoder',
-                                            description='Encodes images, to be decoded by Recolor')
+        parser = argparse.ArgumentParser(
+            prog="Recolor Decoder", description="Encodes images, to be decoded by Recolor"
+        )
 
-        parser.add_argument('-o', '--output_path', action='store', dest='output_path', type=str,
-                               default='output_images',
-                               help='The path to the folder or file, where the grayscale version and color information will be written to')
-        parser.add_argument('-i', '--input_path', action='store', dest='input_path', type=str, default='intermediate_representation',
-                               help='Path to individual grayscale image with color sidecar file, or folder with multiple. ')
-        parser.add_argument('-d', '--display_mask', action='store_true', dest='display_mask',
-                               help='Whether to save the Intermediate Representation mask as an image for visualization. Only works with ideepcolor-px method. ')
-        parser.add_argument('-m', '--method', action='store', dest='method', type=str, default=ar_utils.methods[0],
-                            help='The colorization method to use. Possible values: \"' + ', '.join(ar_utils.methods) + '\"')
-        parser.add_argument('-w','--watch', dest='watch', help='watch input folder for new images', action='store_true')
+        parser.add_argument(
+            "-o", "--output_path",
+            action="store",
+            dest="output_path",
+            type=str,
+            default="output_images",
+            help="The path to the folder or file, where the grayscale version and color information will be written to",
+        )
+        parser.add_argument(
+            "-i", "--input_path",
+            action="store",
+            dest="input_path",
+            type=str,
+            default="intermediate_representation",
+            help="Path to individual grayscale image with color sidecar file, or folder with multiple. ",
+        )
+        parser.add_argument(
+            "-m", "--method",
+            action="store",
+            dest="method",
+            type=str,
+            default=ar_utils.methods[0],
+            help='The colorization method to use. Possible values: "'
+            + ", ".join(ar_utils.methods)
+            + '"',
+        )
+        parser.add_argument(
+            "-w", "--watch",
+            dest="watch",
+            help="watch input folder for new images",
+            action="store_true",
+        )
 
         # for ideepcolor-px
-        parser.add_argument('-s', '--size', action='store', dest='size', type=int, default=256,
-                               help='Size of the indermediate mask to store the color pixels. Power of 2. \
-                               The bigger, the more accurate the result, but requires more storage, and RAM capacity (decoder) \
-                               (For 2048 up to 21GB RAM)')
-        # parser.add_argument('-g', '--grid_size', action='store', dest='grid_size', type=int, default=10,
-                               # help='Sacing between color pixels in intermediate mask (--size)')
-        parser.add_argument('-p', '--p', action='store', dest='p', type=int, default=0,
-                               help='The "radius" the color values will have. \
-                               A higher value means one color pixel will later cover multiple gray pixels. Default: 0')
+        parser.add_argument(
+            "-s", "--size",
+            action="store",
+            dest="size",
+            type=int,
+            default=256,
+            help="Size of the indermediate mask to store the color pixels. Power of 2. \
+            The bigger, the more accurate the result, but requires more storage, and RAM capacity (decoder) \
+            (For 2048 up to 21GB RAM)",
+        )
+        parser.add_argument(
+            "-p", "--p",
+            action="store",
+            dest="p",
+            type=int,
+            default=0,
+            help='The "radius" the color values will have. \
+                               A higher value means one color pixel will later cover multiple gray pixels. Default: 0',
+        )
+        parser.add_argument(
+            "-plt", "--plot",
+            dest="plot",
+            help="Generate Plots for visualization",
+            action="store_true",
+        )
         
         args = parser.parse_args()
         self.method = args.method
@@ -64,11 +108,11 @@ class Decoder(object):
         self.size = args.size
         # self.grid_size = args.grid_size
         self.p = args.p
-        self.display_mask = args.display_mask
         self.output_path = args.output_path
+        self.plot = args.plot
 
         try:
-            os.mkdir(self.output_path)
+            os.makedirs(self.output_path, exist_ok=True)
         except FileExistsError:
             pass
 
@@ -78,7 +122,7 @@ class Decoder(object):
                 Image.open(args.input_path) # Just to test if file is image
                 self.decode(args.input_path)
             except IOError as err:
-                print("Error: File is not a image file: " + args.input_path)
+                print("Error: File is not an image file: " + args.input_path)
         else:
             for fil in os.scandir(args.input_path):
                 if os.path.isdir(fil.path):
@@ -111,26 +155,40 @@ class Decoder(object):
         else:
             print("Error: method not valid:", self.method)
 
-    def decode_ideepcolor_px(self, img_gray_path):
+    def decode_ideepcolor_px(self, img_gray_path, model="pytorch"):
         mask = ar_utils.Mask(self.size, self.p)
         mask.load(os.path.dirname(img_gray_path), os.path.basename(img_gray_path))
 
-        colorModel = CI.ColorizeImageTorch(Xd=mask.size, maskcent=self.maskcent)
-        colorModel.prep_net(path=os.path.abspath(self.color_model), gpu_id=self.gpu_id)
-
+        prev_wd = os.getcwd()
+        if model == "pytorch":
+            colorModel = CI.ColorizeImageTorch(Xd=mask.size, maskcent=self.maskcent)
+            colorModel.prep_net(path=os.path.abspath(self.color_model), gpu_id=self.gpu_id)
+        elif model == "caffe":
+            ideepcolor_folder = "./interactive-deep-colorization"
+            # check if already in folder
+            if not os.path.basename(ideepcolor_folder) == os.path.basename(os.getcwd()):
+                os.chdir(ideepcolor_folder)
+            colorModel = CI.ColorizeImageCaffe(Xd=mask.size)
+            colorModel.prep_net(self.gpu_id, self.caffe_net, self.caffe_model)
+            
         colorModel.load_image(img_gray_path)
 
         img_out = colorModel.net_forward(mask.input_ab, mask.mask)
         img_out_fullres = colorModel.get_img_fullres()
+
+        os.chdir(prev_wd)
+
         self._save_img_out(img_gray_path, img_out_fullres)
         new_rc_mask_filename = None
-        if self.display_mask:
+        # only save plot for grid method, selective has its own
+        if self.plot and self.method == ar_utils.methods[0]:
             img_mask_fullres = colorModel.get_input_img_fullres()
-            self._save_img_out(img_gray_path, img_mask_fullres, method=self.method+"_mask")
+            self._save_img_out(img_gray_path, img_mask_fullres, method=self.method+".mask")
 
         return (img_out_fullres, new_rc_mask_filename)
 
     def decode_ideepcolor_global(self, img_gray_path, stock=False):
+        # TODO: don't recreate cid
         img_gray_abspath = os.path.abspath(img_gray_path)
 
         prev_wd = os.getcwd()
@@ -140,10 +198,10 @@ class Decoder(object):
             os.chdir(ideepcolor_folder)
         
         cid = CI.ColorizeImageCaffeGlobDist(self.size)
-        cid.prep_net(self.gpu_id, prototxt_path='./models/global_model/deploy_nodist.prototxt',
-                     caffemodel_path='./models/global_model/global_model.caffemodel')
+        cid.prep_net(self.gpu_id,
+                     prototxt_path=self.global_prototxt,
+                     caffemodel_path=self.global_caffemodel)
         cid.load_image(img_gray_abspath)
-        # dummy Mask
         dummy_mask = ar_utils.Mask(self.size)
         if not stock:
             glob_dist = ar_utils.load_glob_dist(img_gray_path)

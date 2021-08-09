@@ -2,9 +2,6 @@
 
 import argparse
 import importlib
-import traceback
-import matplotlib.pyplot as plt
-import numpy as np
 from PIL import Image
 import os, sys
 import ar_utils, encoder, decoder
@@ -82,6 +79,10 @@ class Recolor(object):
             self.gpu_id = -1
             args.gpu_id = -1
 
+        if args.grid_size > 255:
+            print("Warning: truncating grid size to 255")
+            args.grid_size = 255
+
 
         if args.method not in self.methods:
             print("Method not valid. One of: \"" + ', '.join(self.methods) + '\"')
@@ -112,8 +113,8 @@ class Recolor(object):
         # colorize all pictures in folder
         elif os.path.isdir(args.input_path):
             try:
-                os.mkdir(args.output_path)
-                os.mkdir(args.intermediate_representation)
+                os.makedirs(args.output_path, exist_ok=True)
+                os.makedirs(args.intermediate_representation, exist_ok=True)
             except FileExistsError as err:
                 pass
             for root, d_names, f_names in os.walk(args.input_path):
@@ -144,8 +145,9 @@ class Recolor(object):
         """
         Performs Encoding and Decoding at once
         """
+        
         ec = encoder.Encoder(output_path=args.intermediate_representation, method=args.method, size=args.size, p=args.p, grid_size=args.grid_size, plot=args.plot)
-        dc = decoder.Decoder(output_path=args.output_path, method=args.method, size=args.size, p=args.p, gpu_id=args.gpu_id)
+        dc = decoder.Decoder(output_path=args.output_path, method=args.method, size=args.size, p=args.p, gpu_id=args.gpu_id, plot=args.plot)
 
         ec.encode(input_image_path)
         img_gray_name = ar_utils.gen_new_gray_filename(input_image_path)

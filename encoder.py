@@ -29,11 +29,12 @@ class Encoder(object):
         self.output_path = output_path
         self.plot = plot
         try:
-            os.mkdir(self.output_path)
+            os.makedirs(self.output_path, exist_ok=True)
         except FileExistsError:
             pass
 
         sys.path.insert(1, os.path.abspath("./interactive-deep-colorization/caffe_files"))
+        os.environ['GLOG_minloglevel'] = '2'  # supress Caffe verbose prints
 
     def main(self):
         parser = argparse.ArgumentParser(prog='Recolor Encoder',
@@ -70,7 +71,7 @@ class Encoder(object):
         self.plot = args.plot
 
         try:
-            os.mkdir(self.output_path)
+            os.makedirs(self.output_path, exist_ok=True)
         except FileExistsError:
             pass
 
@@ -143,7 +144,6 @@ class Encoder(object):
             print("Error: method not valid:", self.method)
 
     def encode_ideepcolor_global(self, img_path, size) -> np.ndarray:
-        os.environ['GLOG_minloglevel'] = '2' # suprress Caffe verbose prints
         import caffe
         lab = importlib.import_module("interactive-deep-colorization.data.lab_gamut")
 
