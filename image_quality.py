@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
 """
-Calculates the Image Quality using PSNR and MS-SSIM recursively and writes them to a plain text .org file in the same directory. 
+Calculates the Image Quality using PSNR and MS-SSIM (by  default) recursively and writes them to a plain text .org file in the same directory.
 """
 
 import os, sys
+import numpy as np
 import argparse
 from sewar import full_ref
 import cv2
@@ -13,11 +14,22 @@ import concurrent.futures
 from multiprocessing import Pool
 from pathlib import Path
 import warnings
+from fast_qa.fast_qa import ssim, ms_ssim, vif_spatial
 
+from skimage import color
+import skimage
+from packaging import version
+if version.parse(skimage.__version__) < version.parse("0.17.0"):
+    from skimage.measure import compare_ssim as ssim_sk
+    from skimage.measure import compare_psnr as psnr_sk
+else:
+    from skimage.metrics import structural_similarity as ssim_sk
+    from skimage.metrics import peak_signal_noise_ratio as psnr_sk
 
 class ImageQuality(object):
     def __init__(self, in_path="output_images", reference_path="../pictures/", out_file="image_quality.org",
-                 recursive=True, skip=False, truncate=4):
+                 recursive=True, skip=False, truncate=4, ab=False, format_org=False,
+                 no_header_name=False, ssim=False, vif=False):
         self.in_path = in_path
         self.ref_path = reference_path
         self.out_file = out_file
@@ -25,9 +37,16 @@ class ImageQuality(object):
         self.cpus = os.cpu_count()
         self.skip = skip
         self.truncate = truncate
+        self.ab = ab
+        self.format_org = format_org
+        self.ssim = ssim
+        self.vif = vif
+        self.no_header_name = no_header_name
 
         # Disable Complex to float casting warning
         warnings.filterwarnings('ignore')
+        # lower CPU priority (to not freeze PC)
+        os.nice(19)
 
     def main(self):
         parser = argparse.ArgumentParser(
@@ -49,7 +68,7 @@ class ImageQuality(object):
             dest="reference_path",
             type=str,
             default=self.ref_path,
-            help="Path to folder with recolored images",
+            help="Path to folder with original rgb images",
         )
         parser.add_argument(
             "-o", "--output_file",
@@ -57,7 +76,7 @@ class ImageQuality(object):
             dest="output_file",
             type=str,
             default=self.out_file,
-            help="The path to the file, where the quality results will be written to. Default: in input folder",
+            help="The name of the file, where the quality results will be written to. Default: image_quality.org",
         )
         parser.add_argument(
             "-n", "--non-recursive",
@@ -75,8 +94,39 @@ class ImageQuality(object):
             "-t", "--truncate",
             dest="truncate",
             type=int,
-            help="Truncate output float values to n digits. Max precision: 16 digits. ",
+            help="Truncate output float values to n digits. Max precision: 16 digits. Default: 4",
             default=4,
+        )
+        parser.add_argument(
+            "-ab", "--ab",
+            dest="ab",
+            help="Calculate values on a&b Lab color channels only. ",
+            action="store_true",
+        )
+        parser.add_argument(
+            "-org", "--format_org",
+            dest="format_org",
+            help="Format produces tables in org files, using Emacs. Requires Emacs to be installed. ",
+            action="store_true",
+        )
+        parser.add_argument(
+            "--no_header_name", 
+            dest="no_header_name",
+            help="Don't use Headers for every source file name (** Name) and put everything into one table. \n\
+            Good for averaging values, when only one type of modified image, but many are in one dir. For that add a formula in Emacs org-mode",
+            action="store_true",
+        )
+        parser.add_argument(
+            "-ssim", "--ssim",
+            dest="ssim",
+            help="Calculate SSIM as well. ",
+            action="store_true",
+        )
+        parser.add_argument(
+            "-vif", "--vif",
+            dest="vif",
+            help="Calculate VIF spatial as well. ",
+            action="store_true",
         )
 
         args = parser.parse_args()
@@ -86,6 +136,11 @@ class ImageQuality(object):
         self.recursive = not args.non_recursive
         self.skip = args.skip
         self.truncate = args.truncate
+        self.ab = args.ab
+        self.format_org = args.format_org
+        self.no_header_name = args.no_header_name
+        self.ssim = args.ssim
+        self.vif = args.vif
 
         self.get_and_write_quality()
 
@@ -113,6 +168,7 @@ class ImageQuality(object):
                 files_matching_ref = self.find_files(ref_name, root)
                 if not files_matching_ref:
                     continue
+                # qualities: Array of dictionaries
                 qualities = qualities + self.calc_quality(ref_paths[idx], files_matching_ref)
                 
             self.write_quality(qualities, ref_names, os.path.join(root, self.out_file))
@@ -123,7 +179,7 @@ class ImageQuality(object):
         """
         :param ref_path: reference image full path
         :param recolored_paths: Array of image paths to get quality to
-        :return: 2D-Array [[path, PSNR, MS-SSIM], ...]
+        :return: Array of dictionaries 2D-Array [[path, PSNR, MS-SSIM], ...]
         """
         
         if type(recolored_paths) is str:
@@ -147,30 +203,83 @@ class ImageQuality(object):
         Calculate quality measures for single image, parallelized
         :param ref_img: already loaded reference img
         :param rec_path: path to recolored image
+        :return: Dictionary. {"File": recolor.png, "Metric": value, ...}
         """
         img = cv2.cvtColor(cv2.imread(rec_path, 1), cv2.COLOR_BGR2RGB)
+        result = {}
         
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            # psnr = full_ref.psnr(
-            #     ref_img, img, MAX=None
-            # )
-            psnr = executor.submit(full_ref.psnr, ref_img, img, MAX=None)
+            if not self.ab:
+                # TODO: run fast_qa on RGB images as well (fast_qa only takes 2D bw Arrays)
+                psnr = executor.submit(psnr_sk, ref_img, img)
+                msssim = executor.submit(full_ref.msssim,
+                                            ref_img, img,
+                                            # default values
+                                            weights=[0.0448, 0.2856, 0.3001, 0.2363, 0.1333],
+                                            ws=11, K1=0.01, K2=0.03, MAX=None)
+                if self.ssim:
+                    ssim_sewar = executor.submit(full_ref.ssim,
+                                                ref_img, img,
+                                                # default values
+                                                ws=11, K1=0.01, K2=0.03, MAX=None,
+                                                fltr_specs=None, mode='valid'
+                                                )
+                    ssim_sewar = ssim_sewar.result()[0]
+                    result["SSIM (sewar)"] = ssim_sewar
 
-            # msssim = full_ref.msssim(
-            #     ref_img, img,
-            #     # default values
-            #     weights=[0.0448, 0.2856, 0.3001, 0.2363, 0.1333],
-            #     ws=11, K1=0.01, K2=0.03, MAX=None
-            # )
-            msssim = executor.submit(full_ref.msssim,
-                                        ref_img, img,
-                                        # default values
-                                        weights=[0.0448, 0.2856, 0.3001, 0.2363, 0.1333],
-                                        ws=11, K1=0.01, K2=0.03, MAX=None)
+                    ssimsk = executor.submit(ssim_sk,
+                                            ref_img, img, multichannel=True)
+                    ssimsk = ssimsk.result()
+                    result["SSIM (skimage)"] = ssimsk
 
-            psnr = psnr.result()
-            msssim = msssim.result()
-        return [rec_path, psnr, float(msssim)]
+                psnr = psnr.result()
+                msssim = msssim.result()
+
+                result["MS-SSIM (sewar)"] = float(msssim)
+                
+            else:
+                img_lab = color.rgb2lab(img).transpose((2, 0, 1)) + 100
+                img_lab = img_lab.astype(int)
+                ref_img_lab = color.rgb2lab(ref_img).transpose((2, 0, 1)) + 100
+                ref_img_lab = ref_img_lab.astype(int)
+
+                psnr_a = executor.submit(psnr_sk, ref_img_lab[1], img_lab[1], data_range=200)
+                psnr_b = executor.submit(psnr_sk, ref_img_lab[2], img_lab[2], data_range=200)
+
+                msssim_qa_a = executor.submit(ms_ssim, ref_img_lab[1], img_lab[1], max_val=200)
+                msssim_qa_b = executor.submit(ms_ssim, ref_img_lab[2], img_lab[2], max_val=200)
+
+                if self.ssim:
+                    ssim_a = executor.submit(ssim, ref_img_lab[1], img_lab[1], max_val=200)
+                    ssim_b = executor.submit(ssim, ref_img_lab[2], img_lab[2], max_val=200)
+                    ssim_a = ssim_a.result()
+                    ssim_b = ssim_b.result()
+                    ssim_fast_qa = np.mean([ssim_a, ssim_b])
+                    result["SSIM"] = ssim_fast_qa
+                    
+                if self.vif:
+                    vif_spatial_a = executor.submit(vif_spatial, ref_img_lab[1], img_lab[1], max_val=200)
+                    vif_spatial_b = executor.submit(vif_spatial, ref_img_lab[2], img_lab[2], max_val=200)
+                    vif_spatial_a = vif_spatial_a.result()
+                    vif_spatial_b = vif_spatial_b.result()
+                    vif = np.mean([vif_spatial_a, vif_spatial_b])
+                    result["VIF-SPATIAL"] = vif
+                    
+                psnr_a = psnr_a.result()
+                psnr_b = psnr_b.result()
+                psnr = np.mean([psnr_a, psnr_b])
+
+                msssim_qa_a = msssim_qa_a.result()
+                msssim_qa_b = msssim_qa_b.result()
+                msssim_fast_qa = np.mean([msssim_qa_a, msssim_qa_b])
+                result["MS-SSIM"] = msssim_fast_qa
+
+
+            result["File"] = rec_path
+            result["PSNR"] = psnr
+
+        
+        return result
 
     def run_multiprocessing(self, func, args_tuple, n_processors=None):
         if not n_processors:
@@ -181,24 +290,54 @@ class ImageQuality(object):
     def write_quality(self, qualities, ref_names, out_file):
         format_string = "%." + str(self.truncate) + "f"
         with open(out_file, "w") as f:
-            f.write("* Image Quality in PSNR & MS-SSIM\n")
+            f.write("* Image Quality of ")
+            if self.ab:
+                f.write("Color Channels\n")
+            else:
+                f.write("Color + Luminance\n")
 
+
+        written_tbl_head = False
         for ref_name in ref_names:
-            written_tbl_head = False
+            if not self.no_header_name:
+                written_tbl_head = False
             for qual in qualities:
-                if not ref_name in qual[0]:
+                # qual: dict
+                qual_names = list(qual.keys())
+                qual_names.remove("File")
+                if not ref_name in qual["File"]:
                     continue
                 if not written_tbl_head:
                     with open(out_file, "a") as f:
                         written_tbl_head = True
                         f.write("\n")
-                        f.write("** " + ref_name + "\n")
-                        f.write("| Image Name | PSNR | MS-SSIM |\n")
-                        f.write("|------------+------+---------|\n")
+                        if not self.no_header_name:
+                            f.write("** " + ref_name + "\n")
+                        # write table head
+                        f.write("| Image Name | ")
+                        for qn in qual_names:
+                            f.write(qn + " | ")
+                        f.write("\n")
+                        # write table delimiter
+                        f.write("|------------")
+                        for qn in qual_names:
+                            f.write(" +----------- ")
+                        f.write("|\n")
+                        
                 with open(out_file, "a") as f:
-                    f.write("|"+ os.path.basename(qual[0]) +"|"+ format_string%(qual[1]) +"|" + format_string%(qual[2]) + "|\n")
+                    f.write("| " + os.path.basename(qual["File"]) + " | " )
+                    # TODO: maybe handle float nan
+                    for qn in qual_names:
+                        f.write(format_string%(qual[qn]) + "| ")
+                    f.write("\n")
+
+        if self.format_org:
+            os.system("emacs --batch " + out_file + 
+            """ --eval="(require 'org)" \
+            --eval="(org-table-recalculate-buffer-tables)" \
+            --eval="(save-buffer)"
+            """)
         print("Wrote: ", out_file)
-                # TODO: optionally format org file, using emacs and shell
     
     def find_files(self, search_string, path, recursive=False):
         """

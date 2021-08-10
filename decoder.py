@@ -21,6 +21,8 @@ class Decoder(object):
         self.plot = plot
         # self.input_path = input_path
         self.output_path = output_path
+        # lower CPU priority (to not freeze PC)
+        os.nice(19)
         try:
             os.makedirs(self.output_path, exist_ok=True)
         except FileExistsError:
@@ -65,8 +67,7 @@ class Decoder(object):
             type=str,
             default=ar_utils.methods[0],
             help='The colorization method to use. Possible values: "'
-            + ", ".join(ar_utils.methods)
-            + '"',
+            + ", ".join(ar_utils.methods) + '"',
         )
         parser.add_argument(
             "-w", "--watch",
@@ -83,8 +84,8 @@ class Decoder(object):
             type=int,
             default=256,
             help="Size of the indermediate mask to store the color pixels. Power of 2. \
-            The bigger, the more accurate the result, but requires more storage, and RAM capacity (decoder) \
-            (For 2048 up to 21GB RAM)",
+            The bigger, the more accurate the result, but requires more storage, \
+            and RAM capacity (decoder) (For 2048 up to 21GB RAM)",
         )
         parser.add_argument(
             "-p", "--p",
@@ -93,7 +94,7 @@ class Decoder(object):
             type=int,
             default=0,
             help='The "radius" the color values will have. \
-                               A higher value means one color pixel will later cover multiple gray pixels. Default: 0',
+            A higher value means one color pixel will later cover multiple gray pixels. Default: 0',
         )
         parser.add_argument(
             "-plt", "--plot",
@@ -178,12 +179,13 @@ class Decoder(object):
 
         os.chdir(prev_wd)
 
-        self._save_img_out(img_gray_path, img_out_fullres)
+        self._save_img_out(img_gray_path, img_out_fullres, extras=[mask.size, mask.grid_size])
         new_rc_mask_filename = None
         # only save plot for grid method, selective has its own
         if self.plot and self.method == ar_utils.methods[0]:
             img_mask_fullres = colorModel.get_input_img_fullres()
-            self._save_img_out(img_gray_path, img_mask_fullres, method=self.method+".mask")
+            self._save_img_out(img_gray_path, img_mask_fullres,
+                               extras=[mask.size, mask.grid_size, ".mask_rgb"])
 
         return (img_out_fullres, new_rc_mask_filename)
 
@@ -214,10 +216,11 @@ class Decoder(object):
         self._save_img_out(img_gray_path, img_out_fullres)
         return img_out_fullres
 
-    def _save_img_out(self, img_gray_path, img, method=None):
+    def _save_img_out(self, img_gray_path, img, method=None, extras=None):
         if method is None:
             method = self.method
-        new_rc_filename = ar_utils.gen_new_recolored_filename(img_gray_path, method)
+        
+        new_rc_filename = ar_utils.gen_new_recolored_filename(img_gray_path, method, extras)
         ar_utils.save(self.output_path, new_rc_filename, img)
 
 

@@ -300,8 +300,7 @@ class Encoder(object):
             y = np.array( [row[0] for row in centres] )*scaling_factor
             x = np.array( [row[1] for row in centres] )*scaling_factor
             plt.scatter(x=x, y=y, c='r', s=1)
-            # TODO: save plot
-            plt_fn = ar_utils.gen_new_mask_filename(self.image_path, "selective_plot")
+            plt_fn = ar_utils.gen_new_mask_filename(self.image_path, [self.method, self.size])
             plt_path = os.path.join(self.output_path, plt_fn)
             plt.savefig(plt_path+".png", bbox_inches='tight', dpi=1500)
             plt.clf()

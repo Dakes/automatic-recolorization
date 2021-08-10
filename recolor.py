@@ -31,6 +31,9 @@ class Recolor(object):
         self.show_plot = False
         self.ir_folder = None
 
+        # lower CPU priority (to not freeze PC)
+        os.nice(19)
+
 
     def main(self):
         parser = argparse.ArgumentParser(prog='Recolor', description='TODO')
@@ -112,11 +115,9 @@ class Recolor(object):
 
         # colorize all pictures in folder
         elif os.path.isdir(args.input_path):
-            try:
-                os.makedirs(args.output_path, exist_ok=True)
-                os.makedirs(args.intermediate_representation, exist_ok=True)
-            except FileExistsError as err:
-                pass
+            os.makedirs(args.output_path, exist_ok=True)
+            os.makedirs(args.intermediate_representation, exist_ok=True)
+            
             for root, d_names, f_names in os.walk(args.input_path):
                 for file_name in f_names:
                     file_path = os.path.join(root, file_name)

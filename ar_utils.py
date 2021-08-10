@@ -23,6 +23,7 @@ class Mask(object):
     def __init__(self, size=256, p=1):
         self.size = size
         self.p = p
+        self.grid_size = None  # Only needed to generate a filename in Decoder.
         self._init_mask()
 
     def _init_mask(self):
@@ -134,18 +135,17 @@ class Mask(object):
                 third_byte = struct.unpack("B", f.read(1))[0]
                 # if lsb is 0 (<128) -> no grid_size saved -> coordinates needed
                 self.p = third_byte & 0b1111111
-                grid_size = None
                 if (third_byte - self.p) >= (1 << 7):
                     # read optional 4. Byte
-                    grid_size = struct.unpack("B", f.read(1))[0]
+                    self.grid_size = struct.unpack("B", f.read(1))[0]
 
                 coord_type, coord_bytes = ( ("H", 2) if saved_mask_size > 256 else ("B", 1) )
                 for y in range(self.size):
                     for x in range(self.size):
-                        if grid_size:
-                            if y % grid_size != 0 or x % grid_size != 0:
+                        if self.grid_size:
+                            if y % self.grid_size != 0 or x % self.grid_size != 0:
                                 continue
-                        if grid_size is None:
+                        if self.grid_size is None:
                             y = f.read(coord_bytes)
                             x = f.read(coord_bytes)
                             if not all((y, x)):
@@ -189,25 +189,43 @@ def gen_new_gray_filename(orig_fn):
     return orig_fn_wo_ext + ".gray" + ext
 
 
-def gen_new_recolored_filename(orig_fn, method):
+def gen_new_recolored_filename(orig_fn, method, extras=[]):
+    """
+    Generates the new filename for recolored files, to save them as.
+    :param orig_fn: Original RGB image filename
+    :param method: Method, that was used for recolorization, will be appended to name
+    :param extras: Optional. All Extras to append to filename (Like mask, grid Size), List
+    """
     orig_fn_wo_ext, ext, dummy = get_fn_wo_ext(orig_fn)
-    new_fn = orig_fn_wo_ext + "_recolored_" + method + ext
+    new_fn = orig_fn_wo_ext + "_recolored_" + method
+    if extras:
+        for e in extras:
+            if not e:
+                continue
+            new_fn = new_fn + "_" + str(e)
+    new_fn = new_fn + ext
     return new_fn
 
 
-def gen_new_mask_filename(input_image_path, extra="") -> str:
+def gen_new_mask_filename(input_image_path, extras=None) -> str:
     """
     Generates a new filename without extension by appending the parameters.
-    :param extra: if empty: nothing extra, else: String with extra info, like plot
+    :param extras: if empty: nothing extra, else: String or list with extra info, like plot, size
     """
-    orig_filename_wo_ext = get_fn_wo_ext(input_image_path)[0]
+    new_fn = get_fn_wo_ext(input_image_path)[0]
     # pixel_used = int( (load_size*load_size) / grid_size )
     # new_filename = orig_filename_wo_ext + "_" +  method + "_" + str(load_size) + "_" + str(grid_size) + "_" + str(pixel_used)
-    if extra:
-        orig_filename_wo_ext = orig_filename_wo_ext + "_" + extra
 
-    new_filename = orig_filename_wo_ext + ".mask"
-    return new_filename
+    if type(extras) == str:
+        new_fn = new_fn + "_" + extras
+    elif type(extras) == list:
+        for e in extras:
+            if not e:
+                continue
+            new_fn = new_fn + "_" + str(e)
+
+    new_fn = new_fn + ".mask"
+    return new_fn
 
 
 # DEPRECATED
@@ -259,6 +277,7 @@ def load_glob_dist(img_path, elements=313) -> np.ndarray:
     :param img_path: path to image with sidecar .glob_dist file or file itself
     :param elements: length of glob_dist array.
     """
+    # TODO: shift elements into 256, if leading & trailing 0 and save offset -> 1 Byte for idx
     glob_dist = np.zeros(elements)
     path = _encode_glob_dist_path(img_path)
     with open(path, "rb") as f:
