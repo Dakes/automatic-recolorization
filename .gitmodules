@@ -4,3 +4,6 @@
 [submodule "colorization-pytorch"]
 	path = colorization-pytorch
 	url = https://github.com/richzhang/colorization-pytorch
+[submodule "fast_qa"]
+	path = fast_qa
+	url = https://github.com/abhinaukumar/fast_qa
