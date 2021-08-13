@@ -181,7 +181,7 @@ class ImageQuality(object):
         :param recolored_paths: Array of image paths to get quality to
         :return: Array of dictionaries 2D-Array [[path, PSNR, MS-SSIM], ...]
         """
-        
+
         if type(recolored_paths) is str:
             recolored_paths = [recolored_paths]
 
@@ -297,6 +297,9 @@ class ImageQuality(object):
                 f.write("Color + Luminance\n")
 
 
+        # To iterate over number of quality metrics later
+        qual_count = None
+        
         written_tbl_head = False
         for ref_name in ref_names:
             if not self.no_header_name:
@@ -305,6 +308,8 @@ class ImageQuality(object):
                 # qual: dict
                 qual_names = list(qual.keys())
                 qual_names.remove("File")
+                if qual_count is None:
+                    qual_count = qual_names
                 if not ref_name in qual["File"]:
                     continue
                 if not written_tbl_head:
@@ -330,6 +335,27 @@ class ImageQuality(object):
                     for qn in qual_names:
                         f.write(format_string%(qual[qn]) + "| ")
                     f.write("\n")
+
+        # write last row for mean and formula, if everything is in one table
+        if self.no_header_name and qual_count:
+            mean_formula = "@>${col}=vmean(@{col}..@>>)"
+            with open(out_file, "a") as f:
+                # write table delimiter
+                f.write("|------------")
+                for qn in qual_count:
+                    f.write(" +----------- ")
+                f.write("|\n")
+                # Write row for Mean
+                f.write("| Mean | ")
+                for qn in qual_count:
+                    f.write(" | ")
+                f.write("\n")
+                # write formula
+                f.write("#+TBLFM: ")
+                first_column = 2
+                for i, qn in enumerate(qual_count):
+                    f.write(mean_formula.format(col=first_column+i))
+                    f.write("::")
 
         if self.format_org:
             os.system("emacs --batch " + out_file + 

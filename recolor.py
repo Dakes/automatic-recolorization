@@ -71,7 +71,7 @@ class Recolor(object):
         # TODO: remove?
         parser.add_argument('--cpu_mode', dest='cpu_mode', help='do not use gpu', action='store_true')
         # parser.add_argument('--pytorch_maskcent', dest='pytorch_maskcent', help='need to center mask (activate for siggraph_pretrained but not for converted caffemodel)', action='store_true')
-        parser.add_argument('--save_mask', dest='save_mask', help='save mask of input pixels as image (ideepcolor-px)', action='store_true')
+        parser.add_argument('--delete_gray', dest='delete_gray', help='Delete generated grayscale image after colorization', action='store_true')
 
 
         args = parser.parse_args()
@@ -155,26 +155,9 @@ class Recolor(object):
         img_gray_path = os.path.join(args.intermediate_representation, img_gray_name)
         dc.decode(img_gray_path)
 
-        # img_out_fullres = None
-        # img_in_fullres = None
-        # new_filename = None
-        # if self.method == "ideepcolor-px":
-        #     img_out_fullres, img_in_fullres, new_filename = self.ideepcolor_px_recolor(args, input_image_path, output_folder)
-
-        # # TODO: save parameters in sidecar file (col. method, pixel grid size, or specific pixels, density)
-        # ar_utils.save(output_folder, new_filename, img_out_fullres)
-
-        # if self.show_plot:
-        #     # show user input, along with output
-        #     plt.figure(figsize=(10,6))
-        #     if self.input_mask:
-        #         plt.imshow(np.concatenate((img_in_fullres, img_out_fullres), axis=1))
-        #         plt.title('Input grayscale with auto points / Output colorization')
-        #     else:
-        #         plt.imshow(np.concatenate((img_out_fullres, ), axis=1))
-        #         plt.title('Output colorization')
-        #     plt.axis('off')
-        #     plt.show()
+        if args.delete_gray and os.path.exists(img_gray_path):
+            os.remove(img_gray_path)
+        
 
     # DEPRECATED replaced by decoder and encoder
     def ideepcolor_px_recolor(self, args, input_image_path, output_folder):
@@ -204,7 +187,6 @@ class Recolor(object):
 
         # call forward
         img_out = colorModel.net_forward(mask.input_ab, mask.mask)
-
         # get mask, input image, and result in full resolution
         # mask_fullres = colorModel.get_img_mask_fullres() # get input mask in full res
         img_out_fullres = colorModel.get_img_fullres() # get image at full resolution

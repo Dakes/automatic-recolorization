@@ -15,7 +15,6 @@ methods = [
     "ideepcolor-px-selective",
     "ideepcolor-global",
     "ideepcolor-stock",
-    "HistoGAN",
 ]
 
 
