@@ -217,8 +217,8 @@ class Encoder(object):
         # PARAM: hardcoded, round_to (for cityscapes rather smaller (8). Default: 10)
         # PARAM: hardcoded, scaling_factor: 8 for highres, or higher. 4, 2 for cityscapes and low res
 
-        # load as rgb 0-255
-        rgb = self.load_image(img_path, colorspace="rgb")
+        # load as rgb 0-255, also save copy for plot later
+        rgb_orig = rgb = self.load_image(img_path, colorspace="rgb")
 
         img_dims = rgb.shape[:-1]
 
@@ -296,7 +296,7 @@ class Encoder(object):
         # Save image with red dots for selected pixels
         if self.plot:
             import matplotlib.pyplot as plt
-            plt.imshow(rgb)
+            plt.imshow(rgb_orig)
             y = np.array( [row[0] for row in centres] )*scaling_factor
             x = np.array( [row[1] for row in centres] )*scaling_factor
             plt.scatter(x=x, y=y, c='r', s=1)
@@ -410,7 +410,7 @@ class Encoder(object):
             if len(area_coords_y) >= random_px_threshold:
                 add_px = int(round( len(area_coords_y) / random_px_threshold ))
                 for i in range(add_px):
-                    random.seed(0)
+                    random.seed(i)
                     new_coord = random.randint(0, len(area_coords_y)-1)
                     new_px = (area_coords_y[new_coord], area_coords_x[new_coord])
                     centres.append(new_px)

@@ -133,6 +133,7 @@ class Recolor(object):
                     try:
                         # to check if valid image
                         Image.open(file_path)
+                        print("\nNow recoloring: ", file_path)
                         self.img_recolor(args, file_path)
                     except IOError as err:
                         print("Skipping non image file: ", file_path)

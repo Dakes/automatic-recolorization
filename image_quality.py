@@ -170,7 +170,6 @@ class ImageQuality(object):
                     continue
                 # qualities: Array of dictionaries
                 qualities = qualities + self.calc_quality(ref_paths[idx], files_matching_ref)
-                
             self.write_quality(qualities, ref_names, os.path.join(root, self.out_file))
             if not self.recursive:
                 break
@@ -256,6 +255,9 @@ class ImageQuality(object):
                     ssim_b = ssim_b.result()
                     ssim_fast_qa = np.mean([ssim_a, ssim_b])
                     result["SSIM"] = ssim_fast_qa
+
+                    
+                    
                     
                 if self.vif:
                     vif_spatial_a = executor.submit(vif_spatial, ref_img_lab[1], img_lab[1], max_val=200)
@@ -283,11 +285,15 @@ class ImageQuality(object):
 
     def run_multiprocessing(self, func, args_tuple, n_processors=None):
         if not n_processors:
-            n_processors = int( self.cpus // 2 )
+            n_processors = int( self.cpus // 3 )
         with Pool(processes=n_processors) as pool:
             return pool.starmap(func, args_tuple)
 
     def write_quality(self, qualities, ref_names, out_file):
+        if not qualities:
+            print("No images in current directory. ")
+            return
+
         format_string = "%." + str(self.truncate) + "f"
         with open(out_file, "w") as f:
             f.write("* Image Quality of ")
@@ -363,6 +369,8 @@ class ImageQuality(object):
             --eval="(org-table-recalculate-buffer-tables)" \
             --eval="(save-buffer)"
             """)
+            if os.path.exists(out_file + "~"):
+                os.remove(out_file + "~")
         print("Wrote: ", out_file)
     
     def find_files(self, search_string, path, recursive=False):
@@ -372,11 +380,12 @@ class ImageQuality(object):
         result = []
         for root, dirs, files in os.walk(path):
             for fil in files:
-                if search_string in fil:
+                if search_string in fil and fil not in result:
                     result.append(os.path.abspath(os.path.join(root, fil)))
             # First dir is path itself, so break if no subdirs should be searched
             if not recursive:
                 break
+
         return result
 
     def get_ref_paths_names(self):
