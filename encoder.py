@@ -8,6 +8,7 @@ import argparse
 from typing_extensions import ParamSpecArgs
 import cv2
 import numpy as np
+import math
 from skimage import color
 from PIL import Image
 import ar_utils
@@ -406,9 +407,16 @@ class Encoder(object):
                     closest = (area_coords_y[idx], area_coords_x[idx])
             centres.append(closest)
 
-            # if current blob is particularly large, use additional randomly selected pixels (+1 px per 1000 in blob)
+            # if current blob is particularly large, use additional randomly selected pixels
             if len(area_coords_y) >= random_px_threshold:
-                add_px = int(round( len(area_coords_y) / random_px_threshold ))
+
+                # scale up additional pixels linearly in beginning, logarithmically later
+                if len(area_coords_y) < random_px_threshold*3:
+                    add_px = int( len(area_coords_y) // random_px_threshold )
+                else:
+                    add_px = int(round( math.log(len(area_coords_y), 10) ))
+                
+                print(add_px)
                 for i in range(add_px):
                     random.seed(i)
                     new_coord = random.randint(0, len(area_coords_y)-1)
