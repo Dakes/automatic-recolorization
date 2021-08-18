@@ -130,6 +130,10 @@ class Encoder(object):
             elif self.method == "ideepcolor-px-selective":
                 mask = self.get_color_mask_selective(img_path)
                 mask.save(self.output_path, os.path.basename(filename_mask))
+            # "ideepcolor-px-grid-exclude"
+            elif self.method == ar_utils.methods[4]:
+                mask = self.get_color_mask_grid(img_path, self.grid_size, self.size, self.p, exclude=True)
+                mask.save(self.output_path, os.path.basename(filename_mask))
 
         elif self.method == "ideepcolor-global":
             self.encode_ideepcolor_global(img_path, self.size)
@@ -179,10 +183,11 @@ class Encoder(object):
         """
         return cv2.medianBlur(rgb, k)
 
-    def get_color_mask_grid(self, img_path, grid_size=100, size=256, p=0):
+    def get_color_mask_grid(self, img_path, grid_size=100, size=256, p=0, exclude=False, exclude_round_to=10, exclude_radius=4):
         """
         :param img: original color image as lab (lab, y, x)
         :param grid_size: distance between pixels of grid in pixels 0 - mask size (-1: every space filled, 0: None filled (stock coloring))
+        :param exclude: Use exclude method. Leave out similar colored pixels
         :return Mask: Mask of pixels
         """
         # TODO: save plot of grid
@@ -203,10 +208,68 @@ class Encoder(object):
             for x in range(size):
                 if x % grid_size != 0:
                     continue
-                y_img, x_img = ar_utils._coord_mask_to_img(h, w, y, x, size)
-                mask.put_point((y, x), [ img[1][y_img][x_img],
-                                         img[2][y_img][x_img] ])
+                use_px = True
+                if exclude:
+                    use_px = self.mask_check_vicinity(img, y, x)
+                if use_px:
+                    y_img, x_img = ar_utils._coord_mask_to_img(h, w, y, x, size)
+                    mask.put_point((y, x), [ img[1][y_img][x_img],
+                                            img[2][y_img][x_img] ])
+
+        if self.plot:
+            import matplotlib.pyplot as plt
+            rgb = self.load_image(img_path, colorspace="rgb")
+            plt.imshow(rgb)
+            for ys in range(mask.size):
+                for xs in range(mask.size):
+                    if not mask.mask[0][ys][xs]:
+                        continue
+                    y_img, x_img = ar_utils._coord_mask_to_img(h, w, ys, xs, size)
+                    plt.scatter(x=x_img, y=y_img, c='r', s=1)
+                    
+            plt_fn = ar_utils.gen_new_mask_filename(self.image_path, [self.method, self.size, "scatter"])
+            plt_path = os.path.join(self.output_path, plt_fn)
+            plt.savefig(plt_path+".png", bbox_inches='tight', dpi=1500)
+            plt.clf()
+            plt.close()
+
+
         return mask
+
+    def mask_check_vicinity(self, img, y, x, round_to=20, radius=1):
+        """
+        Checks if pixels of same color (rounded) are in square vicinity of size radius of coordinates given.
+        y and x mask coordinates, not image
+        Returns True if other colors are in vicinity. False if all colors in this radius are the same.
+        TODO: clear cache after IR got written
+        """
+        h = len(img[0])
+        w = len(img[0][0])
+        # bin_mask = mask.mask[0]
+
+        if not hasattr(self, 'px_vic_cache_a'):
+            a = img[1]+100 
+            b = img[2]+100
+            a = np.int16(a)  # OpenCV is weird. why not int8 ??!!???
+            b = np.int16(b)
+            self.px_vic_cache_a = self.round_arr_to( self.denoise_image_for_px_selection(a), round_to)
+            self.px_vic_cache_b = self.round_arr_to( self.denoise_image_for_px_selection(b), round_to)
+
+        a = self.px_vic_cache_a
+        b = self.px_vic_cache_b
+
+        y_img, x_img = ar_utils._coord_mask_to_img(h, w, y, x, self.size)
+        center = (a[y_img][x_img], b[y_img][x_img])
+        for y_rel in range(-radius, radius):
+            for x_rel in range(-radius, radius):
+                y_px, x_px = ar_utils._coord_mask_to_img(h, w, y + y_rel, x + x_rel, self.size)
+                if y_px >= h or y_px < 0 or x_px >= w or x_px < 0:
+                    continue
+                ab = (a[y_px][x_px], b[y_px][x_px])
+                if center != ab:
+                    return True
+        return False
+        
 
     # Everything for selective color mask
     def get_color_mask_selective(self, img_path, round_to=10, scaling_factor=None):
@@ -416,7 +479,6 @@ class Encoder(object):
                 else:
                     add_px = int(round( math.log(len(area_coords_y), 10) ))
                 
-                print(add_px)
                 for i in range(add_px):
                     random.seed(i)
                     new_coord = random.randint(0, len(area_coords_y)-1)

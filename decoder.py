@@ -182,10 +182,13 @@ class Decoder(object):
         self._save_img_out(img_gray_path, img_out_fullres, extras=[mask.size, mask.grid_size])
         new_rc_mask_filename = None
         # only save plot for grid method, selective has its own
-        if self.plot and self.method == ar_utils.methods[0]:
+        if self.plot and (self.method == ar_utils.methods[0] or self.method == ar_utils.methods[4]):
             img_mask_fullres = colorModel.get_input_img_fullres()
+            # img_real_mask_fullres = colorModel.get_img_mask_fullres()
             self._save_img_out(img_gray_path, img_mask_fullres,
                                extras=[mask.size, mask.grid_size, ".mask_rgb"])
+            # self._save_img_out(img_gray_path, img_real_mask_fullres,
+            #                    extras=[mask.size, mask.grid_size, ".mask_rgb_real"])
 
         return (img_out_fullres, new_rc_mask_filename)
 

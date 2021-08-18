@@ -189,7 +189,8 @@ class ImageQuality(object):
         mp_args = []
         for i in recolored_paths:
             # skip mask plot visulizations
-            if ".mask" in i:
+            # TODO: check properly if file is image
+            if ".mask" in i or ".glob_dist" in i:
                 continue
             mp_args.append((ref_img, i))
         
