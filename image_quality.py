@@ -7,7 +7,7 @@ Calculates the Image Quality using PSNR and MS-SSIM (by  default) recursively an
 import os, sys
 import numpy as np
 import argparse
-from sewar import full_ref
+# from sewar import full_ref
 import cv2
 from PIL import Image
 import concurrent.futures
@@ -15,6 +15,8 @@ from multiprocessing import Pool
 from pathlib import Path
 import warnings
 from fast_qa.fast_qa import ssim, ms_ssim, vif_spatial
+import lpips
+import torch
 
 from skimage import color
 import skimage
@@ -117,15 +119,33 @@ class ImageQuality(object):
             action="store_true",
         )
         parser.add_argument(
+            "-ms-ssim", "--ms-ssim",
+            dest="msssim",
+            help="Calculate SSIM. ",
+            action="store_true",
+        )
+        parser.add_argument(
             "-ssim", "--ssim",
             dest="ssim",
-            help="Calculate SSIM as well. ",
+            help="Calculate SSIM. ",
+            action="store_true",
+        )
+        parser.add_argument(
+            "-psnr", "--psnr",
+            dest="psnr",
+            help="Calculate SSIM. ",
             action="store_true",
         )
         parser.add_argument(
             "-vif", "--vif",
             dest="vif",
-            help="Calculate VIF spatial as well. ",
+            help="Calculate VIF spatial. ",
+            action="store_true",
+        )
+        parser.add_argument(
+            "-lpips", "--lpips",
+            dest="lpips",
+            help="Calculate LPIPS (Learned Perceptual Image Patch Similarity). Warning: only works on RGB. if --ab is set, calculates on RGB. ",
             action="store_true",
         )
 
@@ -139,8 +159,24 @@ class ImageQuality(object):
         self.ab = args.ab
         self.format_org = args.format_org
         self.no_header_name = args.no_header_name
+        
+        self.msssim = args.msssim
         self.ssim = args.ssim
+        self.psnr = args.psnr
         self.vif = args.vif
+        self.lpips = args.lpips
+
+        # set default methods, if non are given
+        if not self.msssim and not self.ssim and not self.psnr and not self.vif and not self.lpips:
+            self.msssim = True
+            self.psnr = True
+            self.lpips = True
+
+        if self.lpips:
+            # TODO: add spatial as parameter
+            self.loss_fn = lpips.LPIPS(net='alex', verbose=True)  # Can also set net = 'squeeze' or 'vgg'
+            if self.ab:
+                print("Warning LPIPS only runs on RGB. LPIPS will run on RGB, the rest on the ab channels. ")
 
         self.get_and_write_quality()
 
@@ -148,6 +184,7 @@ class ImageQuality(object):
         """
         To be executed, when imported. 
         """
+        # TODO: make it efficiently use multithreading, generate huge list of src & target image / folder -> MT that
         ref_paths, ref_names = self.get_ref_paths_names()
         
         # iterate through all subfolders of in_path
@@ -184,70 +221,114 @@ class ImageQuality(object):
         if type(recolored_paths) is str:
             recolored_paths = [recolored_paths]
 
-        ref_img = cv2.cvtColor(cv2.imread(ref_path, 1), cv2.COLOR_BGR2RGB)
-
         mp_args = []
         for i in recolored_paths:
             # skip mask plot visulizations
             # TODO: check properly if file is image
             if ".mask" in i or ".glob_dist" in i:
                 continue
-            mp_args.append((ref_img, i))
+            mp_args.append((ref_path, i))
         
         qualities = self.run_multiprocessing(self.calc_quality_image, mp_args)
         
         return qualities
 
-    def calc_quality_image(self, ref_img, rec_path):
+    def calc_quality_image(self, ref_path, rec_path):
         """
         Calculate quality measures for single image, parallelized
         :param ref_img: already loaded reference img
         :param rec_path: path to recolored image
         :return: Dictionary. {"File": recolor.png, "Metric": value, ...}
         """
+        ref_img = cv2.cvtColor(cv2.imread(ref_path, 1), cv2.COLOR_BGR2RGB)
         img = cv2.cvtColor(cv2.imread(rec_path, 1), cv2.COLOR_BGR2RGB)
         result = {}
-        
+
+        if self.lpips:
+            ref_tensor = lpips.im2tensor(lpips.load_image(ref_path))
+            rec_tensor = lpips.im2tensor(lpips.load_image(rec_path))
+
+            lpips_val = self.loss_fn.forward(ref_tensor, rec_tensor)
+            result["LPIPS"] = float(lpips_val)
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
+            
+
+            # RGB
             if not self.ab:
-                # TODO: run fast_qa on RGB images as well (fast_qa only takes 2D bw Arrays)
-                psnr = executor.submit(psnr_sk, ref_img, img)
-                msssim = executor.submit(full_ref.msssim,
-                                            ref_img, img,
-                                            # default values
-                                            weights=[0.0448, 0.2856, 0.3001, 0.2363, 0.1333],
-                                            ws=11, K1=0.01, K2=0.03, MAX=None)
-                if self.ssim:
-                    ssim_sewar = executor.submit(full_ref.ssim,
+                if self.psnr:
+                    psnr = executor.submit(psnr_sk, ref_img, img)
+                    psnr_r = executor.submit(psnr_sk, ref_img[0], img[0])
+                    psnr_g = executor.submit(psnr_sk, ref_img[1], img[1])
+                    psnr_b = executor.submit(psnr_sk, ref_img[2], img[2])
+
+                    psnr_r = psnr_r.result()
+                    psnr_g = psnr_g.result()
+                    psnr_b = psnr_b.result()
+
+                    psnr = np.mean([psnr_r, psnr_g, psnr_b])
+                    result["PSNR"] = psnr
+
+                if self.msssim:
+                    msssim = executor.submit(full_ref.msssim,
                                                 ref_img, img,
                                                 # default values
-                                                ws=11, K1=0.01, K2=0.03, MAX=None,
-                                                fltr_specs=None, mode='valid'
-                                                )
-                    ssim_sewar = ssim_sewar.result()[0]
-                    result["SSIM (sewar)"] = ssim_sewar
+                                                weights=[0.0448, 0.2856, 0.3001, 0.2363, 0.1333],
+                                                ws=11, K1=0.01, K2=0.03, MAX=None)
+                    
+                    msssim_r = executor.submit(ms_ssim, ref_img[0], img[0], max_val=255)
+                    msssim_g = executor.submit(ms_ssim, ref_img[1], img[1], max_val=255)
+                    msssim_b = executor.submit(ms_ssim, ref_img[2], img[2], max_val=255)
+                    msssim_r = msssim_r.result()
+                    msssim_g = msssim_g.result()
+                    msssim_b = msssim_b.result()
 
-                    ssimsk = executor.submit(ssim_sk,
-                                            ref_img, img, multichannel=True)
-                    ssimsk = ssimsk.result()
-                    result["SSIM (skimage)"] = ssimsk
+                    msssim = np.mean([msssim_r, msssim_g, msssim_b])
+                    result["MS-SSIM"] = msssim
+                    
+                if self.ssim:
+                    ssim_r = executor.submit(ssim, ref_img[0], img[0], max_val=255)
+                    ssim_g = executor.submit(ssim, ref_img[1], img[1], max_val=255)
+                    ssim_b = executor.submit(ssim, ref_img[2], img[2], max_val=255)
+                    ssim_r = ssim_r.result()
+                    ssim_g = ssim_g.result()
+                    ssim_b = ssim_b.result()
+                    ssim_fast_qa = np.mean([ssim_r, ssim_g, ssim_b])
+                    result["SSIM"] = ssim_fast_qa
 
-                psnr = psnr.result()
-                msssim = msssim.result()
+                if self.vif:
+                    vif_spatial_r = executor.submit(vif_spatial, ref_img[0], img[0], max_val=255)
+                    vif_spatial_g = executor.submit(vif_spatial, ref_img[1], img[1], max_val=255)
+                    vif_spatial_b = executor.submit(vif_spatial, ref_img[2], img[2], max_val=255)
+                    vif_spatial_r = vif_spatial_r.result()
+                    vif_spatial_g = vif_spatial_g.result()
+                    vif_spatial_b = vif_spatial_b.result()
+                    vif = np.mean([vif_spatial_r, vif_spatial_g, vif_spatial_b])
+                    result["VIF-SPATIAL"] = vif
 
-                result["MS-SSIM (sewar)"] = float(msssim)
-                
+            # ab only
             else:
                 img_lab = color.rgb2lab(img).transpose((2, 0, 1)) + 100
                 img_lab = img_lab.astype(int)
                 ref_img_lab = color.rgb2lab(ref_img).transpose((2, 0, 1)) + 100
                 ref_img_lab = ref_img_lab.astype(int)
 
-                psnr_a = executor.submit(psnr_sk, ref_img_lab[1], img_lab[1], data_range=200)
-                psnr_b = executor.submit(psnr_sk, ref_img_lab[2], img_lab[2], data_range=200)
-
-                msssim_qa_a = executor.submit(ms_ssim, ref_img_lab[1], img_lab[1], max_val=200)
-                msssim_qa_b = executor.submit(ms_ssim, ref_img_lab[2], img_lab[2], max_val=200)
+                
+                if self.psnr:
+                    psnr_a = executor.submit(psnr_sk, ref_img_lab[1], img_lab[1], data_range=200)
+                    psnr_b = executor.submit(psnr_sk, ref_img_lab[2], img_lab[2], data_range=200)
+                    psnr_a = psnr_a.result()
+                    psnr_b = psnr_b.result()
+                    psnr = np.mean([psnr_a, psnr_b])
+                    result["PSNR"] = psnr
+                    
+                if self.msssim:
+                    msssim_qa_a = executor.submit(ms_ssim, ref_img_lab[1], img_lab[1], max_val=200)
+                    msssim_qa_b = executor.submit(ms_ssim, ref_img_lab[2], img_lab[2], max_val=200)
+                    msssim_qa_a = msssim_qa_a.result()
+                    msssim_qa_b = msssim_qa_b.result()
+                    msssim_fast_qa = np.mean([msssim_qa_a, msssim_qa_b])
+                    result["MS-SSIM"] = msssim_fast_qa
 
                 if self.ssim:
                     ssim_a = executor.submit(ssim, ref_img_lab[1], img_lab[1], max_val=200)
@@ -257,9 +338,6 @@ class ImageQuality(object):
                     ssim_fast_qa = np.mean([ssim_a, ssim_b])
                     result["SSIM"] = ssim_fast_qa
 
-                    
-                    
-                    
                 if self.vif:
                     vif_spatial_a = executor.submit(vif_spatial, ref_img_lab[1], img_lab[1], max_val=200)
                     vif_spatial_b = executor.submit(vif_spatial, ref_img_lab[2], img_lab[2], max_val=200)
@@ -267,19 +345,13 @@ class ImageQuality(object):
                     vif_spatial_b = vif_spatial_b.result()
                     vif = np.mean([vif_spatial_a, vif_spatial_b])
                     result["VIF-SPATIAL"] = vif
-                    
-                psnr_a = psnr_a.result()
-                psnr_b = psnr_b.result()
-                psnr = np.mean([psnr_a, psnr_b])
 
-                msssim_qa_a = msssim_qa_a.result()
-                msssim_qa_b = msssim_qa_b.result()
-                msssim_fast_qa = np.mean([msssim_qa_a, msssim_qa_b])
-                result["MS-SSIM"] = msssim_fast_qa
+
+                
 
 
             result["File"] = rec_path
-            result["PSNR"] = psnr
+            
 
         
         return result
