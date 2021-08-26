@@ -149,16 +149,21 @@ class Decoder(object):
         elif self.method == ar_utils.methods[3]:
             # same as global, but without global hints
             self.decode_ideepcolor_global(img_gray_path, stock=True)
-
-        elif self.method == "HistoGAN":
-            # TODO: implement
-            pass
+        
         else:
             print("Error: method not valid:", self.method)
 
     def decode_ideepcolor_px(self, img_gray_path, model="pytorch"):
+        
         mask = ar_utils.Mask(self.size, self.p)
-        mask.load(os.path.dirname(img_gray_path), os.path.basename(img_gray_path))
+
+        # "ideepcolor-px-grid+selective"
+        if self.method == ar_utils.methods[5]:
+            mask.load(os.path.dirname(img_gray_path), os.path.basename(img_gray_path), name_extra="1", initialize=True)
+            mask.grid_size = None
+            mask.load(os.path.dirname(img_gray_path), os.path.basename(img_gray_path), name_extra="2", initialize=False)
+        else:
+            mask.load(os.path.dirname(img_gray_path), os.path.basename(img_gray_path))
 
         prev_wd = os.getcwd()
         if model == "pytorch":
@@ -182,7 +187,7 @@ class Decoder(object):
         self._save_img_out(img_gray_path, img_out_fullres, extras=[mask.size, mask.grid_size])
         new_rc_mask_filename = None
         # only save plot for grid method, selective has its own
-        if self.plot and (self.method == ar_utils.methods[0] or self.method == ar_utils.methods[4]):
+        if self.plot and (self.method == ar_utils.methods[0] or self.method == ar_utils.methods[4] or self.method == ar_utils.methods[5]):
             img_mask_fullres = colorModel.get_input_img_fullres()
             # img_real_mask_fullres = colorModel.get_img_mask_fullres()
             self._save_img_out(img_gray_path, img_mask_fullres,

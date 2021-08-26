@@ -15,6 +15,8 @@ methods = [
     "ideepcolor-px-selective",
     "ideepcolor-global",
     "ideepcolor-stock",
+    "ideepcolor-px-grid-exclude",
+    "ideepcolor-px-grid+selective"
 ]
 
 
@@ -39,12 +41,12 @@ class Mask(object):
         self.input_ab[:, loc[0] - p : loc[0] + p + 1, loc[1] - p : loc[1] + p + 1] = np.array(val)[:, np.newaxis, np.newaxis]
         self.mask[:, loc[0] - p : loc[0] + p + 1, loc[1] - p : loc[1] + p + 1] = 1
 
-    def save(self, path, name, grid_size=None, round_to_int=True, method="bytes"):
+    def save(self, path, name, grid_size=None, name_extra=None, round_to_int=True, method="bytes"):
         """
         :param grid_size: optional, for grids, if set saves grid size, saves on coordinates
         """
         # TODO: round to 2 and change to bitwise save (Saves one bit per a/b)
-        save_path = os.path.join(path, gen_new_mask_filename(name))
+        save_path = os.path.join(path, gen_new_mask_filename(name, extras=name_extra))
 
         if method == "numpy" or method == "np":
             np.savez_compressed(save_path + "np.savez_compressed", a=self.input_ab, b=self.mask)
@@ -94,13 +96,14 @@ class Mask(object):
                         f.write(struct.pack("b", a))
                         f.write(struct.pack("b", b))
 
-    def load(self, path, name, method="bytes"):
+    def load(self, path, name, name_extra=None, method="bytes", initialize=True):
         """
         :param path: Path, where the sidecar file is stored
         :param name: Filename of original or grayscale image
         """
-        save_path = os.path.join(path, gen_new_mask_filename(name))
-        self._init_mask()
+        save_path = os.path.join(path, gen_new_mask_filename(name, extras=name_extra))
+        if initialize:
+            self._init_mask()
         if method == "numpy":
             loaded = np.load(save_path)
             self.input_ab = loaded["a"]
@@ -128,8 +131,9 @@ class Mask(object):
                 # first 2 Byte: mask size
                 saved_mask_size = struct.unpack("H", f.read(2))[0]
                 # Restore saved mask size
-                self.size = saved_mask_size
-                self._init_mask()
+                if self.size != saved_mask_size and initialize:
+                    self.size = saved_mask_size
+                    self._init_mask()
                 # 3. Byte: p size
                 third_byte = struct.unpack("B", f.read(1))[0]
                 # if lsb is 0 (<128) -> no grid_size saved -> coordinates needed
@@ -261,6 +265,7 @@ def save_glob_dist(out_path, name, glob_dist, elements=313) -> str:
     # wb: write binary
     with open(path, "wb") as f:
         for idx, val in enumerate(glob_dist):
+            # print(idx, val)
             # don't save elements without content
             if val == 0.0:
                 continue

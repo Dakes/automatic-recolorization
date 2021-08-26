@@ -9,6 +9,7 @@ from typing_extensions import ParamSpecArgs
 import cv2
 import numpy as np
 import math
+import random
 from skimage import color
 from PIL import Image
 import ar_utils
@@ -134,6 +135,15 @@ class Encoder(object):
             elif self.method == ar_utils.methods[4]:
                 mask = self.get_color_mask_grid(img_path, self.grid_size, self.size, self.p, exclude=True)
                 mask.save(self.output_path, os.path.basename(filename_mask))
+            # "ideepcolor-px-grid-selective"
+            elif self.method == ar_utils.methods[5]:
+                # get two masks, one grid one selective, save both in Decoder combine both
+                mask_grid = self.get_color_mask_grid(img_path)
+                mask_grid.save(self.output_path, os.path.basename(filename_mask), name_extra="1", grid_size=self.grid_size)
+
+                mask_sel = self.get_color_mask_selective(img_path, sigma_gauss_div=150, sigma_bilat_div=50)
+                mask_sel.save(self.output_path, os.path.basename(filename_mask), name_extra="2")
+                
 
         elif self.method == "ideepcolor-global":
             self.encode_ideepcolor_global(img_path, self.size)
@@ -142,9 +152,6 @@ class Encoder(object):
         elif self.method == ar_utils.methods[3]:
             pass
 
-        elif self.method == "HistoGAN":
-            # TODO: implement
-            pass
         else:
             print("Error: method not valid:", self.method)
 
@@ -183,14 +190,22 @@ class Encoder(object):
         """
         return cv2.medianBlur(rgb, k)
 
-    def get_color_mask_grid(self, img_path, grid_size=100, size=256, p=0, exclude=False, exclude_round_to=10, exclude_radius=4):
+    def get_color_mask_grid(self, img_path, grid_size=None, size=None, p=None, exclude=False, rand_offset=None):
         """
         :param img: original color image as lab (lab, y, x)
         :param grid_size: distance between pixels of grid in pixels 0 - mask size (-1: every space filled, 0: None filled (stock coloring))
         :param exclude: Use exclude method. Leave out similar colored pixels
+        :param rand_offset: For testing/debugging, give every pixel in the grid a random offset of +-this. if used, don't save with grid.
         :return Mask: Mask of pixels
         """
-        # TODO: save plot of grid
+        # TODO: replace in code properly by globals
+        if p is None:
+            p = self.p
+        if size is None:
+            size = self.size
+        if grid_size is None:
+            grid_size = self.grid_size
+            
         mask = ar_utils.Mask(size=size, p=p)
 
         rgb = self.load_image(img_path, colorspace="rgb")
@@ -212,20 +227,34 @@ class Encoder(object):
                 if exclude:
                     use_px = self.mask_check_vicinity(img, y, x)
                 if use_px:
-                    y_img, x_img = ar_utils._coord_mask_to_img(h, w, y, x, size)
-                    mask.put_point((y, x), [ img[1][y_img][x_img],
-                                            img[2][y_img][x_img] ])
+                    if rand_offset and not exclude:
+                        y_off = random.randrange(-rand_offset, rand_offset)
+                        x_off = random.randrange(-rand_offset, rand_offset)
+                        if y+y_off>=size or y-y_off<0 or x+x_off>=size or x-x_off<0:
+                            continue
+                        y_img, x_img = ar_utils._coord_mask_to_img(h, w, y+y_off, x+x_off, size)
+                        mask.put_point((y+y_off, x+x_off), [ img[1][y_img][x_img],
+                                                             img[2][y_img][x_img] ])
+                    else:
+                        y_img, x_img = ar_utils._coord_mask_to_img(h, w, y, x, size)
+                        mask.put_point((y, x), [ img[1][y_img][x_img],
+                                                 img[2][y_img][x_img] ])
+                    
 
         if self.plot:
             import matplotlib.pyplot as plt
             rgb = self.load_image(img_path, colorspace="rgb")
             plt.imshow(rgb)
+            y_arr, x_arr = [], []
             for ys in range(mask.size):
                 for xs in range(mask.size):
                     if not mask.mask[0][ys][xs]:
                         continue
                     y_img, x_img = ar_utils._coord_mask_to_img(h, w, ys, xs, size)
-                    plt.scatter(x=x_img, y=y_img, c='r', s=1)
+                    y_arr.append(y_img)
+                    x_arr.append(x_img)
+
+            plt.scatter(x=x_arr, y=y_arr, c='r', s=1)
                     
             plt_fn = ar_utils.gen_new_mask_filename(self.image_path, [self.method, self.size, "scatter"])
             plt_path = os.path.join(self.output_path, plt_fn)
@@ -233,11 +262,11 @@ class Encoder(object):
             plt.clf()
             plt.close()
 
-
         return mask
 
-    def mask_check_vicinity(self, img, y, x, round_to=20, radius=1):
+    def mask_check_vicinity(self, img, y, x, round_to=25, radius=1):
         """
+        round_to: 10 for cityscapes, 20/25 for colorful high res
         Checks if pixels of same color (rounded) are in square vicinity of size radius of coordinates given.
         y and x mask coordinates, not image
         Returns True if other colors are in vicinity. False if all colors in this radius are the same.
@@ -272,9 +301,9 @@ class Encoder(object):
         
 
     # Everything for selective color mask
-    def get_color_mask_selective(self, img_path, round_to=10, scaling_factor=None):
+    def get_color_mask_selective(self, img_path, round_to=10, scaling_factor=None, sigma_gauss_div=250, sigma_bilat_div=500):
         """
-        :param:
+        :param sigma_gauss_div: divider for the gaussian sigma (last blurring step). Smaller -> stronger blur -> fewer points. Default: 250
         :return Mask: Mask of pixels
         """
         from skimage import filters, restoration, util, transform
@@ -317,7 +346,7 @@ class Encoder(object):
 
         # Bilateral Filter; Edge preserving blur
         # PARAM: sigma_spatial, (/250)
-        sigma_spatial = min(img_dims) / 500
+        sigma_spatial = min(img_dims) / sigma_bilat_div
         print("Sigma Spatial (Bilateral)", sigma_spatial)
         # PARAM: sigma_color: sig-default*100
         sigma_color = None  # restoration.estimate_sigma(img_resized)*100
@@ -335,7 +364,7 @@ class Encoder(object):
 
         # Gaussian blur; smooth out colors a bit more, reduces points overall
         # PARAM: calculated sigma
-        sigma = min(a.shape)/250  # Gaussian (/250)
+        sigma = min(a.shape) / sigma_gauss_div  # Gaussian (/250)
         print("Sigma Gaussian:", sigma)
         a = filters.gaussian(a, sigma, preserve_range=True)
         b = filters.gaussian(b, sigma, preserve_range=True)
@@ -470,8 +499,8 @@ class Encoder(object):
                     closest = (area_coords_y[idx], area_coords_x[idx])
             centres.append(closest)
 
-            # if current blob is particularly large, use additional randomly selected pixels
-            if len(area_coords_y) >= random_px_threshold:
+            # if current blob is particularly large, use additional randomly selected pixels. Not with grid+selective
+            if len(area_coords_y) >= random_px_threshold and self.method != ar_utils.methods[5]:
 
                 # scale up additional pixels linearly in beginning, logarithmically later
                 if len(area_coords_y) < random_px_threshold*3:
