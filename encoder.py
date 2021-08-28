@@ -11,13 +11,15 @@ import numpy as np
 import math
 import random
 from skimage import color
+from sklearn.cluster import KMeans
 from PIL import Image
 import ar_utils
 import importlib
 
 
 class Encoder(object):
-    def __init__(self, output_path="intermediate_representation", method=ar_utils.methods[0], size=256, p=0, grid_size=10, plot=False) -> None:
+    def __init__(self, output_path="intermediate_representation", method=ar_utils.methods[0],
+                 size=256, p=0, grid_size=10, plot=False, quantize=0) -> None:
         self.methods = ar_utils.methods
         self.method = method
         self.watch = False
@@ -30,6 +32,11 @@ class Encoder(object):
         # self.input_path = input_path
         self.output_path = output_path
         self.plot = plot
+        self.quantize_k = quantize
+
+        # lower CPU priority (to not freeze PC), unix only
+        os.nice(19)
+        
         try:
             os.makedirs(self.output_path, exist_ok=True)
         except FileExistsError:
@@ -62,6 +69,8 @@ class Encoder(object):
                             help='The "radius" the color values will have. \
                             A higher value means one color pixel will later cover multiple gray pixels. Default: 0')
         parser.add_argument('-plt', '--plot', dest='plot', help='Generate Plots for visualization', action='store_true')
+        parser.add_argument('-q', '--quantize', dest='quantize', action='store', type=int, default=0, 
+                            help='Quantize Pixel values. Number of bins. Default: not used (0), off. ')
 
         args = parser.parse_args()
         self.watch = args.watch
@@ -71,6 +80,7 @@ class Encoder(object):
         self.output_path = args.output_path
         self.method = args.method
         self.plot = args.plot
+        self.quantize_k = args.quantize
 
         try:
             os.makedirs(self.output_path, exist_ok=True)
@@ -97,10 +107,15 @@ class Encoder(object):
                     print("Warning: Found non image file: " + fil.path)
                     pass
 
-    def load_image(self, path, colorspace="lab"):
+    def load_image(self, path, colorspace="lab", quantize=False):
+        """
+        :param quantize: quantize loaded image (only applies to ab of LAB)
+        """
         if colorspace == "lab":
             img_rgb = cv2.cvtColor(cv2.imread(path, 1), cv2.COLOR_BGR2RGB)
             img_lab = self.rgb_to_lab(img_rgb)
+            img_lab[1] = self.quantize(img_lab[1], k=self.quantize_k, ret_labels=False)
+            img_lab[2] = self.quantize(img_lab[2], k=self.quantize_k, ret_labels=False)
             return img_lab
         elif colorspace == "rgb":
             img = cv2.cvtColor(cv2.imread(path, 1), cv2.COLOR_BGR2RGB)
@@ -108,6 +123,46 @@ class Encoder(object):
         elif "gray" in colorspace or "grey" in colorspace:
             return cv2.cvtColor(cv2.imread(path, 1), cv2.COLOR_BGR2GRAY)
 
+    def quantize(self, arr, k=0, ret_labels=False):
+        """
+        Quantizes a 2D Array using K-Means clustering to k clusters.
+        :param arr: 2D Array, usually a or b channel.
+        :param ret_labels: if True, returns tuple: image with labels from 0-k and centers (label_img, centers). False: normally usable array
+        """
+        if not k:
+            return arr
+
+        # shift to positive if -100-100
+        ab_shifted = False
+        if np.min(arr) < 0:
+            arr = arr + 100
+            ab_shifted = True
+
+        inarray=np.array(arr, dtype=np.uint8)
+        orig=inarray
+        inarray=inarray.reshape((-1,1))
+        kmeans=KMeans(n_clusters=k,init='k-means++')
+        kmeans.fit(inarray)
+        centers=kmeans.cluster_centers_
+        labels=kmeans.labels_
+        if ret_labels:
+            final = labels.reshape(orig.shape)
+            centers = centers.astype(int)
+            if ab_shifted:
+                centers = centers - 100
+            return (final, centers)
+        else:
+            f=[]
+            centers=centers.squeeze()
+            for i in labels:
+                f.append(centers[i])
+            final=np.asarray(f)
+            final=final.reshape(orig.shape)
+            final = final.astype(int)
+            if ab_shifted:
+                final = final - 100
+            return final
+        
     def rgb_to_lab(self, rgb):
         return color.rgb2lab(rgb).transpose((2, 0, 1))
 
@@ -141,7 +196,7 @@ class Encoder(object):
                 mask_grid = self.get_color_mask_grid(img_path)
                 mask_grid.save(self.output_path, os.path.basename(filename_mask), name_extra="1", grid_size=self.grid_size)
 
-                mask_sel = self.get_color_mask_selective(img_path, sigma_gauss_div=150, sigma_bilat_div=50)
+                mask_sel = self.get_color_mask_selective(img_path)#, sigma_gauss_div=225, sigma_bilat_div=250)
                 mask_sel.save(self.output_path, os.path.basename(filename_mask), name_extra="2")
                 
 
@@ -207,12 +262,15 @@ class Encoder(object):
             grid_size = self.grid_size
             
         mask = ar_utils.Mask(size=size, p=p)
+        if grid_size == 0:
+            return mask
 
         rgb = self.load_image(img_path, colorspace="rgb")
         rgb = self.denoise_image_for_px_selection(rgb, k=5)
         img = self.rgb_to_lab(rgb)
-        if grid_size == 0:
-            return mask
+        # if k=0 (default), arr will not be modified
+        img[1] = self.quantize(img[1], k=self.quantize_k, ret_labels=False)
+        img[2] = self.quantize(img[2], k=self.quantize_k, ret_labels=False)
 
         h = len(img[0])
         w = len(img[0][0])
@@ -328,6 +386,9 @@ class Encoder(object):
         lab_median = self.rgb_to_lab(rgb)
         a_median = lab_median[1].astype(int)
         b_median = lab_median[2].astype(int)
+        # will be returned unmodified, if k=0
+        a_median = self.quantize(a_median, k=self.quantize_k, ret_labels=False)
+        b_median = self.quantize(b_median, k=self.quantize_k, ret_labels=False)
         
         # scale down image
         img_resized = transform.resize(rgb,

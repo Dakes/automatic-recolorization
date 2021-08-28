@@ -65,7 +65,8 @@ class Recolor(object):
                                help='The "radius" the color values will have. \
                                A higher value means one color pixel will later cover multiple gray pixels. Default: 0')
         parser.add_argument('-plt','--plot', dest='plot', help='Generate Plots for visualization', action='store_true')
-
+        parser.add_argument('-q', '--quantize', dest='quantize', action='store', type=int, default=0,
+                            help='Quantize Pixel values. Number of bins. Default: not used (0), off. ')
         # TODO: test gpu on cuda gpu
         parser.add_argument('--gpu_id', dest='gpu_id', help='gpu id', type=int, default=-1)
         # TODO: remove?
@@ -104,14 +105,6 @@ class Recolor(object):
             # TODO: check if image
 
             self.img_recolor(args, args.input_path)
-            # try:
-            #     # to check if valid image
-            #     Image.open(args.input_path)
-            #     self.img_recolor(args, args.input_path)
-            # except IOError as err:
-            #     print(err)
-            #     sys.exit()
-
 
         # colorize all pictures in folder
         elif os.path.isdir(args.input_path):
@@ -124,11 +117,6 @@ class Recolor(object):
                     relative_path = os.path.relpath(file_path, args.input_path)
                     output_file = os.path.join(args.output_path, relative_path)
 
-                    # out_folder = os.path.dirname(output_file)
-                    # try:
-                    #     os.mkdir(out_folder)
-                    # except FileExistsError:
-                    #     pass
 
                     try:
                         # to check if valid image
@@ -148,7 +136,8 @@ class Recolor(object):
         Performs Encoding and Decoding at once
         """
         
-        ec = encoder.Encoder(output_path=args.intermediate_representation, method=args.method, size=args.size, p=args.p, grid_size=args.grid_size, plot=args.plot)
+        ec = encoder.Encoder(output_path=args.intermediate_representation, method=args.method,
+                             size=args.size, p=args.p, grid_size=args.grid_size, plot=args.plot, quantize=args.quantize)
         dc = decoder.Decoder(output_path=args.output_path, method=args.method, size=args.size, p=args.p, gpu_id=args.gpu_id, plot=args.plot)
 
         ec.encode(input_image_path)
@@ -161,7 +150,7 @@ class Recolor(object):
         
 
     # DEPRECATED replaced by decoder and encoder
-    def ideepcolor_px_recolor(self, args, input_image_path, output_folder):
+    def ideepcolor_px_recolor_old(self, args, input_image_path, output_folder):
         """
         ideepcolor pixel colorization method
         TODO: extend to use different pixel extraction methods
@@ -200,7 +189,7 @@ class Recolor(object):
         return (img_out_fullres, None, new_filename)
 
     # DEPRECATED replaced by encoder and decoder
-    def ideepcolor_hist_recoler(self, args, input_image_path, output_folder):
+    def ideepcolor_hist_recoler_old(self, args, input_image_path, output_folder):
         # generate new filename with parameters used
         new_filename = ar_utils.gen_new_hist_filename(input_image_path, self.load_size, self.method)
         distModel = CI.ColorizeImageTorchDist(Xd=self.load_size, maskcent=self.maskcent)
