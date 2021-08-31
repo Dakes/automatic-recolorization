@@ -37,6 +37,7 @@ class Mask(object):
         # loc         2 tuple      (h,w) of where to put the user input
         # p           scalar       half-patch size
         # val         2 tuple      (a,b) value of user input
+        # TODO: apply in Decoder
         p = self.p
         self.input_ab[:, loc[0] - p : loc[0] + p + 1, loc[1] - p : loc[1] + p + 1] = np.array(val)[:, np.newaxis, np.newaxis]
         self.mask[:, loc[0] - p : loc[0] + p + 1, loc[1] - p : loc[1] + p + 1] = 1
@@ -75,6 +76,7 @@ class Mask(object):
                 f.write(struct.pack("H", self.size))
                 # 3. Byte stores p size and if grid size is saved in next 2 Bytes -> last bit 1 (unsigned char "B")
                 third_byte = self.p
+                # TODO: fix weird bug with p>0 and grid method
                 if grid_size:
                     # assuming p size is <128, which would be ridiculous anyway
                     third_byte = third_byte + (1 << 7)  # set last bit to 1

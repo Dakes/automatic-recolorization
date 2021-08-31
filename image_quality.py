@@ -174,7 +174,7 @@ class ImageQuality(object):
 
         if self.lpips:
             # TODO: add spatial as parameter
-            self.loss_fn = lpips.LPIPS(net='alex', verbose=True)  # Can also set net = 'squeeze' or 'vgg'
+            self.loss_fn = lpips.LPIPS(net='alex', verbose=True)  # Can also set net = 'squeeze' or 'vgg' squeeze: more lightweight
             if self.ab:
                 print("Warning LPIPS only runs on RGB. LPIPS will run on RGB, the rest on the ab channels. ")
 
