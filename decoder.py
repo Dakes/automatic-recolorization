@@ -9,7 +9,7 @@ CI = importlib.import_module("interactive-deep-colorization.data.colorize_image"
 
 class Decoder(object):
     def __init__(self, output_path="output_images", gpu_id=-1, method=ar_utils.methods[0], size=256, p=0, plot=False) -> None:
-        self.gpu_id = gpu_id
+        self.gpu_id = None if gpu_id < 0 else gpu_id
         self.methods = ar_utils.methods
         self.method = method
         self.watch = False
@@ -76,26 +76,6 @@ class Decoder(object):
             action="store_true",
         )
 
-        # for ideepcolor-px
-        parser.add_argument(
-            "-s", "--size",
-            action="store",
-            dest="size",
-            type=int,
-            default=256,
-            help="Size of the indermediate mask to store the color pixels. Power of 2. \
-            The bigger, the more accurate the result, but requires more storage, \
-            and RAM capacity (decoder) (For 2048 up to 21GB RAM)",
-        )
-        parser.add_argument(
-            "-p", "--p",
-            action="store",
-            dest="p",
-            type=int,
-            default=0,
-            help='The "radius" the color values will have. \
-            A higher value means one color pixel will later cover multiple gray pixels. Default: 0',
-        )
         parser.add_argument(
             "-plt", "--plot",
             dest="plot",
@@ -108,7 +88,6 @@ class Decoder(object):
         self.watch = args.watch
         self.size = args.size
         # self.grid_size = args.grid_size
-        self.p = args.p
         self.output_path = args.output_path
         self.plot = args.plot
 
@@ -168,7 +147,8 @@ class Decoder(object):
         prev_wd = os.getcwd()
         if model == "pytorch":
             colorModel = CI.ColorizeImageTorch(Xd=mask.size, maskcent=self.maskcent)
-            colorModel.prep_net(path=os.path.abspath(self.color_model), gpu_id=self.gpu_id)
+            gpu_id = None if self.gpu_id < 0 else self.gpu_id
+            colorModel.prep_net(path=os.path.abspath(self.color_model), gpu_id=gpu_id)
         elif model == "caffe":
             ideepcolor_folder = "./interactive-deep-colorization"
             # check if already in folder

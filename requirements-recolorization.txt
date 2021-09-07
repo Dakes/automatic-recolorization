@@ -4,6 +4,9 @@ numpy
 scikit-image
 scikit-learn
 sklearn
-importlib
-pytorch
 typing-extensions
+opencv-python
+torch
+torchvision
+dominate
+visdom

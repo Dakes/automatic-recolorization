@@ -149,59 +149,6 @@ class Recolor(object):
             os.remove(img_gray_path)
         
 
-    # DEPRECATED replaced by decoder and encoder
-    def ideepcolor_px_recolor_old(self, args, input_image_path, output_folder):
-        """
-        ideepcolor pixel colorization method
-        TODO: extend to use different pixel extraction methods
-        :return: tuple of colorized image and input pixel mask (as image) and new filename (second is optional, dependend on self.input_mask)
-        """
-        # TODO: automate grid_size and size to get certain density
-        grid_size = 10
-
-        # generate new filename with parameters used
-        new_filename = ar_utils.gen_new_px_grid_filename(input_image_path, self.load_size, grid_size, self.method)
-
-        colorModel = CI.ColorizeImageTorch(Xd=self.load_size, maskcent=self.maskcent)
-        colorModel.prep_net(path=os.path.abspath(args.color_model), gpu_id=args.gpu)
-
-
-        colorModel.load_image(input_image_path)
-        orig_lab_img = colorModel.img_lab # img_lab is sizexsize, img_lab_fullres fullres, obviously
-        h = len(orig_lab_img[0])
-        w = len(orig_lab_img[0][0])
-
-        # initialize with no user inputs
-        ec = encoder.Encoder()
-        mask = ec.encode(input_image_path, output_folder, self.load_size, grid_size, p=0, method="ideepcolor-px-grid")
-
-        # call forward
-        img_out = colorModel.net_forward(mask.input_ab, mask.mask)
-        # get mask, input image, and result in full resolution
-        # mask_fullres = colorModel.get_img_mask_fullres() # get input mask in full res
-        img_out_fullres = colorModel.get_img_fullres() # get image at full resolution
-
-
-
-        if self.input_mask:
-            img_mask_fullres = colorModel.get_input_img_fullres() # get input image with pixel mask in full res
-            return (img_out_fullres, img_mask_fullres, new_filename)
-        return (img_out_fullres, None, new_filename)
-
-    # DEPRECATED replaced by encoder and decoder
-    def ideepcolor_hist_recoler_old(self, args, input_image_path, output_folder):
-        # generate new filename with parameters used
-        new_filename = ar_utils.gen_new_hist_filename(input_image_path, self.load_size, self.method)
-        distModel = CI.ColorizeImageTorchDist(Xd=self.load_size, maskcent=self.maskcent)
-        distModel.prep_net(path=os.path.abspath(args.color_model), dist=True, gpu_id=args.gpu)
-        distModel.load_image(input_image_path)
-        # orig_lab_img = distModel.img_lab
-
-    
-
-
-
-
 if __name__ == "__main__":
     rc = Recolor()
     rc.main()
