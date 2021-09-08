@@ -131,6 +131,7 @@ dependencies:
   - zeromq=4.2.5=hf484d3e_1
   - zlib=1.2.11=h7b6447c_3
   - zstd=1.4.9=haebb681_0
+  - pip
   - pip:
     - cython==0.29.23
     - future==0.18.2

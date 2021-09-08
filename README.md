@@ -1,10 +1,13 @@
 # Automatic Recolorization
 This is a prototype for recoloring images, as closely as possible to their original color, while only keeping a few color cues. This was built using a colorization system called [Interactive Deep Colorization](https://github.com/junyanz/interactive-deep-colorization) 
 
+## Image Quality Metrics
+image_quality.py
+
 ## Recolor
 recolor.py runs both encoding and decoding at the same time.
 
-Parameters:
+Parameters:  
 `-i`, `--input_path`: Path to folder or file of original color image(s). Goes recursively through all subfolders.  
 `-o`, `--output_path`: Output folder, where the recolored image(s) should be written to.  
 `-ir`, `--intermediate_representation`: Folder, where the Intermediate Representation (gray image + color cues) should be stored.  
@@ -23,7 +26,7 @@ Parameters:
 ## Encoder
 Encodes a color image into an Intermediate Representation (IR). A grayscale image + color cues.  
 
-Parameters:
+Parameters:  
 `-i`, `--input_path`: Path to folder or file of original color image(s). Goes recursively through all subfolders.  
 `-o`, `--output_path`: Output folder, where the Intermediate Representation (IR) will be written to.  
 `-m`, `--method`: Recolorization method to use. One of: "ideepcolor-px-grid", "ideepcolor-px-selective", "ideepcolor-global", "ideepcolor-stock", "ideepcolor-px-grid-exclude", "ideepcolor-px-grid+selective". For explanation of methods look below.  
@@ -38,7 +41,7 @@ Parameters:
 ## Decoder
 Converts the IR back to a color image. 
 
-Parameters:
+Parameters:  
 `-i`, `--input_path`: Path to folder or file of IRs grayscale image. It will automatically match the the name of the sidecar file, with the input grayscale image. Goes recursively through all subfolders.  
 `-o`, `--output_path`: Output folder, where the recolored image(s) should be written to.  
 `-m`, `--method`: Recolorization method to use. One of: "ideepcolor-px-grid", "ideepcolor-px-selective", "ideepcolor-global", "ideepcolor-stock", "ideepcolor-px-grid-exclude", "ideepcolor-px-grid+selective". For explanation of methods look below.  
@@ -86,7 +89,7 @@ s:256 -> ~~500B - 1.5KiB
 clone with submodules
 `git clone --recurse-submodules "https://github.com/Dakes/automatic-recolorization.git"`
 
-Download pretrained models. Either manually, by executing the scripts, from the submodules. interactive-deep-colorization models are only needed for global hints method. The rest uses the pytorch implementations. 
+Download pretrained models. Either manually, by executing the scripts, from the submodules or by executing `setup.sh`. interactive-deep-colorization models are only needed for global hints method. The rest uses the pytorch implementations. 
 
 In case the original server hosting the models goes down (which happened before) I reuploaded them here: <https://drive.google.com/file/d/1uYc04V5ubTjH1RjRv3hd1bH1q9vdQm31/view?usp=sharing>
 
@@ -99,3 +102,4 @@ Install fitting dependencies from requirements files, or the conda environment. 
 - Implement space saving benefits of Vector Quantization
 - save global hints more compact, using offsets and uchar for coordinate. 
 - Apply compression to IR and potentially package image and sidecar file into one archive
+- Automatically download && cache pretrained nets. But only the needed ones. 
