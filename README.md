@@ -93,7 +93,17 @@ Download pretrained models. Either manually, by executing the scripts, from the 
 
 In case the original server hosting the models goes down (which happened before) I reuploaded them here: <https://drive.google.com/file/d/1uYc04V5ubTjH1RjRv3hd1bH1q9vdQm31/view?usp=sharing>
 
-Install fitting dependencies from requirements files, or the conda environment. The global method requires caffe, which is only available via conda. 
+Install fitting dependencies from requirements files, or the conda environment. The global method requires caffe, which is only available via conda.
+
+### Conda
+1. Install anaconda  
+2. `conda env update --file recolorization-conda-env.yml`  
+3. `conda activate automatic-recolorization`  
+4. run  
+
+### pip
+- `pip install --user -r requirements-recolorization.txt`  
+- `pip install --user -r requirements-image_quality.txt`  
 
 ## TODO
 
