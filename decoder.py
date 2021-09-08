@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+Converts a grayscale image + color cues back into a color image. 
+"""
+
+
 import os, sys
 import argparse
 import ar_utils
@@ -188,7 +193,8 @@ class Decoder(object):
             os.chdir(ideepcolor_folder)
         
         cid = CI.ColorizeImageCaffeGlobDist(self.size)
-        cid.prep_net(self.gpu_id,
+        gpu_id = -1 if self.gpu_id is None else self.gpu_id
+        cid.prep_net(gpu_id,
                      prototxt_path=self.global_prototxt,
                      caffemodel_path=self.global_caffemodel)
         cid.load_image(img_gray_abspath)

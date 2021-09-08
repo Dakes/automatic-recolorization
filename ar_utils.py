@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-A place for helper functions for automatic-recolorization, like getting Histograms and color pixels from images
+A place for helper functions for automatic-recolorization, like generating filenames, creating saving loading the mask, etc.
 """
 
 import os
@@ -50,9 +50,11 @@ class Mask(object):
         save_path = os.path.join(path, gen_new_mask_filename(name, extras=name_extra))
 
         if method == "numpy" or method == "np":
+            # DEPRECATED
             np.savez_compressed(save_path + "np.savez_compressed", a=self.input_ab, b=self.mask)
 
         elif method == "csv":
+            # DEPRECATED
             # header = ["y", "x", "a", "b"]
             with open(save_path + ".csv", "w") as f:
                 writer = csv.writer(f, delimiter=";")
@@ -100,18 +102,22 @@ class Mask(object):
 
     def load(self, path, name, name_extra=None, method="bytes", initialize=True):
         """
-        :param path: Path, where the sidecar file is stored
+        :param path: Path to folder, where the sidecar file is stored
         :param name: Filename of original or grayscale image
+        :param name_extra: extras for filename (for example 1/2 of grid+selective, so two can be saved)
+        :param initialize: if mask should be reset to zeros.
         """
         save_path = os.path.join(path, gen_new_mask_filename(name, extras=name_extra))
         if initialize:
             self._init_mask()
         if method == "numpy":
+            # DEPRECATED
             loaded = np.load(save_path)
             self.input_ab = loaded["a"]
             self.mask = loaded["b"]
 
         if method == "csv":
+            # DEPRECATED
             with open(save_path + ".csv") as f:
                 reader = csv.reader(f, delimiter=";")
                 data = list(reader)
@@ -182,6 +188,9 @@ def save_img(path, name, img):
 
 
 def get_fn_wo_ext(filepath):
+    """
+    Get filename without extension
+    """
     filename = os.path.basename(filepath)
     filename_wo_ext, first_extension = os.path.splitext(filename)
     # ensure .gray.png extension is removed fully
@@ -190,6 +199,9 @@ def get_fn_wo_ext(filepath):
 
 
 def gen_new_gray_filename(orig_fn):
+    """
+    Generate filename for grayscale files
+    """
     orig_fn_wo_ext, ext, dummy = get_fn_wo_ext(orig_fn)
     return orig_fn_wo_ext + ".gray" + ext
 
@@ -233,8 +245,8 @@ def gen_new_mask_filename(input_image_path, extras=None) -> str:
     return new_fn
 
 
-# DEPRECATED
 def gen_new_hist_filename(method, input_image_path, load_size) -> str:
+    # DEPRECATED
     """
     Generates a new filename without extension by appending the parameters.
     :param method:
@@ -249,19 +261,14 @@ def gen_new_hist_filename(method, input_image_path, load_size) -> str:
 
 def save_glob_dist(out_path, name, glob_dist, elements=313) -> str:
     """
+    Save global distribution array
     :param path: output folder
     :param name: either original image filename or full path to original image
     :return: str New path + filename it was saved to
     """
     # TODO: check if elements after 256 are empty and only save 256 first with 1 index Byte
-    if elements > 512:
-        warn = "Warning: elements are bigger than 512 and wont fit in 2 Bytes"
-        print(warn)
-        raise Exception(warn)
     if elements < 256:
-        print(
-            "Elements < 256. You are wasting one Byte! Consider saving the index as unsigned char ('B')"
-        )
+        print("Elements < 256. You are wasting one Byte! Consider saving the index as unsigned char ('B')")
 
     path = _encode_glob_dist_path(os.path.join(out_path, os.path.basename(name)))
     # wb: write binary
@@ -280,6 +287,7 @@ def save_glob_dist(out_path, name, glob_dist, elements=313) -> str:
 
 def load_glob_dist(img_path, elements=313) -> np.ndarray:
     """
+    Load global distribution array
     :param img_path: path to image with sidecar .glob_dist file or file itself
     :param elements: length of glob_dist array.
     """
@@ -303,6 +311,9 @@ def load_glob_dist(img_path, elements=313) -> np.ndarray:
 
 
 def _encode_glob_dist_path(img_path) -> str:
+    """
+    Generate new filename for global distribution file
+    """
     img_name = os.path.basename(img_path)
     out_path = os.path.dirname(img_path)
     img_name_wo_ext, extension = os.path.splitext(img_name)
@@ -321,4 +332,7 @@ def _coord_mask_to_img(h, w, y, x, size=256):
 
 
 def _coord_transform(src, target, val):
+    # TODO: DON'T USE int() baka, -> int(round())
     return int((src / target) * val)
+
+
