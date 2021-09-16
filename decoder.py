@@ -152,7 +152,9 @@ class Decoder(object):
         prev_wd = os.getcwd()
         if model == "pytorch":
             colorModel = CI.ColorizeImageTorch(Xd=mask.size, maskcent=self.maskcent)
-            gpu_id = None if self.gpu_id < 0 else self.gpu_id
+            gpu_id = None
+            if type(self.gpu_id) is int:
+                gpu_id = None if self.gpu_id < 0 else self.gpu_id
             colorModel.prep_net(path=os.path.abspath(self.color_model), gpu_id=gpu_id)
         elif model == "caffe":
             ideepcolor_folder = "./interactive-deep-colorization"
